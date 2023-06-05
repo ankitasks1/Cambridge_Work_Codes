@@ -1,0 +1,2163 @@
+---
+title: "Bulk RNA-Seq: Iva Lab Gencode"
+author: "Ankit Verma"
+date: '2022-07-11'
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+        
+---
+#iva_lab_gencode
+#Gencode With gurdon.config and default of nf-core/rna-seq
+####/mnt/home3/slurm/slurm_sub.py nextflow -log myrun.log run nf-core/rnaseq  -r 3.8.1 -profile singularity --outdir outfolder --input samplesheet.csv --fasta GRCh38.p13.genome.fa --gtf GRCh38.gencode.v41.chr_patch_hapl_scaff.annotation.gtf -c /mnt/home3/nextflow/gurdon.config --save_reference --gencode
+
+###### featureCounts -t exon -g gene_id -s 2 -a /mnt/home3/reid/av638/rnaseq/iva_lab_gencode/outfolder/genome/GRCh38.p13.genome_genes.gtf -T 12 -o ivalab_star_featureCounts_grch38.txt R7508_16_1.markdup.sorted.bam R7508_16_2.markdup.sorted.bam R7508_16_3.markdup.sorted.bam C1KO_2.markdup.sorted.bam C1KO_3.markdup.sorted.bam C1KO_4.markdup.sorted.bam H1_4KO_5.markdup.sorted.bam H1_4KO_8.markdup.sorted.bam H1_4KO_9.markdup.sorted.bam MTF2KO_19.markdup.sorted.bam MTF2KO_2.markdup.sorted.bam MTF2KO_5.markdup.sorted.bam SUZ12KO_2.markdup.sorted.bam SUZ12KO_5.markdup.sorted.bam SUZ12KO_6.markdup.sorted.bam
+
+###### featureCounts -t exon -g gene_id -s 2 -a gencode.v41.chr_patch_hapl_scaff.annotation.gtf -T 12 -o ivalab_star_featureCounts_gencode_grch38.txt R7508_16_1.markdup.sorted.bam R7508_16_2.markdup.sorted.bam R7508_16_3.markdup.sorted.bam C1KO_2.markdup.sorted.bam C1KO_3.markdup.sorted.bam C1KO_4.markdup.sorted.bam H1_4KO_5.markdup.sorted.bam H1_4KO_8.markdup.sorted.bam H1_4KO_9.markdup.sorted.bam MTF2KO_19.markdup.sorted.bam MTF2KO_2.markdup.sorted.bam MTF2KO_5.markdup.sorted.bam SUZ12KO_2.markdup.sorted.bam SUZ12KO_5.markdup.sorted.bam SUZ12KO_6.markdup.sorted.bam
+
+
+```{r library, message=FALSE}
+load("/mnt/beegfs6/home3/reid/av638/rnaseq/iva_lab_gencode/outfolder/star_salmon/deseq2_qc/deseq2.dds.RData")
+library(DESeq2)
+library(ggplot2)
+library(pheatmap)
+library(plyr)
+library(ggpubr)
+library(splitstackshape)
+library(gprofiler2)
+library(UpSetR)
+library(tidyr)
+library(org.Hs.eg.db)
+library(stringr)
+library(ggrepel)
+library(ChIPseeker)
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(stringi)
+```
+
+#NCBI gtf
+```{r NCBI gtf}
+# countdatancbi <- read.table("/mnt/home3/reid/av638/rnaseq/iva_lab_gencode/outfolder/star_salmon/ivalab_star_featureCounts_grch38.txt", header=TRUE, row.names=1)
+# # Remove first five columns (chr, start, end, strand, length)
+# countdatancbi <- countdatancbi[ ,6:ncol(countdatancbi)]
+# head(countdatancbi)
+# # Remove .bam or .sam from filenames
+# colnames(countdatancbi) <- gsub(".markdup.sorted.bam", "", colnames(countdatancbi))
+# countdatancbi <- countdatancbi[,c(4:6,7:9,10:12,1:3,13:15)]
+# dim(countdatancbi)
+# head(countdatancbi)
+# colSums(countdatancbi)
+```
+
+#gencode gtf
+```{r gencode gtf}
+# countdatagencode <- read.table("/mnt/home3/reid/av638/rnaseq/iva_lab_gencode/outfolder/star_salmon/ivalab_star_featureCounts_gencode_grch38.txt", header=TRUE, row.names=1)
+# # Remove first five columns (chr, start, end, strand, length)
+# countdatagencode <- countdatagencode[ ,6:ncol(countdatagencode)]
+# head(countdatagencode)
+# # Remove .bam or .sam from filenames
+# colnames(countdatagencode) <- gsub(".markdup.sorted.bam", "", colnames(countdatagencode))
+# countdatagencode <- countdatagencode[,c(4:6,7:9,10:12,1:3,13:15)]
+# dim(countdatagencode)
+# head(countdatagencode)
+# colSums(countdatagencode)
+```
+
+### Obtain un-normalized counts from dds (output of nextflow nf-core/rnaseq)
+
+```{r Obtaining un-normalized counts from dds}
+precountdata <- counts(dds, normalized=FALSE)
+head(precountdata)
+dim(precountdata)
+colSums(precountdata)
+precountdata <- data.frame(precountdata)
+precountdata["ensID"] <- rownames(precountdata)
+```
+
+###python gencode_gtf_content_extractor.py --input GRCh38.gencode.v41.chr_patch_hapl_scaff.annotation.gtf --feature gene --output GRCh38_gtf.txt --species human 
+### grep chr gene_gencode_human_GRCh38_gtf.txt  > gene_gencode_human_GRCh38_gtf_onlychr.txt
+#Add ensID to gene symbol
+```{r Add ensID to gene symbol}
+gene_gencode_human_GRCh38 <- read.table("/mnt/home3/reid/av638/rnaseq/iva_lab_gencode/gene_gencode_human_GRCh38_gtf_onlychr.txt", header = F, stringsAsFactors = F)
+colnames(gene_gencode_human_GRCh38) <- c("chr","start", "end", "strand", "type", "ensID", "gene")
+gene_gencode_human_GRCh38["ens_gene"] <- paste0(gene_gencode_human_GRCh38$ensID, "%", gene_gencode_human_GRCh38$gene)
+#Get only those genes which has chromosome coordinates known
+countdata <- merge(precountdata, gene_gencode_human_GRCh38 ,by.x = "ensID", by.y ="ensID", all.y =T)
+rownames(countdata) <- countdata$ens_gene
+countdata <- countdata[,c(2:16)]
+```
+
+### Create coldata object
+
+```{r Creating coldata object}
+#Add condition column in coldata of dds
+coldata <- data.frame(samples = colData(dds)$sample, condition = c(rep("C1KO",3), rep("H1_4KO",3), rep("MTF2KO",3), rep("R7508",3), rep("SUZ12KO",3)), replicate = c(rep(c("r1","r2","r3"),5)))
+rownames(coldata) <- colData(dds)$sample
+head(coldata)
+coldata <- coldata[,c("condition", "replicate")]
+coldata$condition <- factor(coldata$condition)
+coldata$replicate <- factor(coldata$replicate)
+```
+
+```{r Plot PCA for all the samples}
+vstNorm <- vst(dds)
+vstNorm_pca <- plotPCA(vstNorm, intgroup="sample", returnData=TRUE)
+vstNorm_pca["replicate"] <- rep(c("rep1","rep2","rep3"),5)
+vstNorm_pca["samplenames"] <- c(rep("CRAMP1KO",3),rep("H1.4KO",3),rep("MTF2KO",3),rep("R7508KO",3),rep("SUZ12KO",3))
+percentVarvstnorm <- round(100 * attr(vstNorm_pca, "percentVar"))
+ggplot(vstNorm_pca, aes(PC1, PC2, color=samplenames,shape=replicate)) +
+  geom_point(size=3) +
+  xlab(paste0("PC1: ",percentVarvstnorm[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVarvstnorm[2],"% variance")) + 
+  coord_fixed()+ scale_color_manual(values = c(rep("#0073C2FF",1), rep("#CD534CFF",1), rep("#EFC000FF",1), rep("#868686FF",1), rep("#77DD77",1)))+
+  theme_bw()+theme(panel.grid.major = element_line(colour = "white"),panel.grid.minor = element_line(colour = "white"))+xlim(-20,57) + ylim(-25,27)
+ggsave("PCA_vstNormcounts.svg", width=5, height=6, units="in", dpi=96)
+```
+
+
+### Remove original dds from loadsapce as it might interfere with the new ddsO
+
+```{r Removing dds}
+rm(dds)
+```
+
+### As checked by PCA one sample is not good so I removed that
+
+```{r removing SUZ12KO_6}
+#Remove SUZ12KO from count matrix
+countData = as.matrix(countdata[,1:14])
+head(countData)
+#Remove SUZ12KO from coldata
+coldata <- coldata[-15,]
+```
+
+
+### Prepare count matrix
+```{r Preparing count matrix}
+#all(rownames(coldata) == colnames(countData)) #should print TRUE
+ddsO <- DESeqDataSetFromMatrix(countData =countData, colData = coldata, design = ~ condition)
+ddsO
+keep <- rowSums(counts(ddsO)) > 10
+ddsO <- ddsO[keep,]
+colData(ddsO)
+
+#Normalized separately:
+ddsONorm <- estimateSizeFactors(ddsO)
+sizeFactors(ddsONorm)
+#Export normalized counts
+ddsONormcounts <- counts(ddsONorm, normalized=TRUE)
+head(ddsONormcounts)
+dim(ddsONormcounts)
+write.table(ddsONormcounts, "ddsONormcounts.txt", sep="\t", quote=F, col.names=NA)
+```
+
+
+### Perform clustering and show data by dendrogram
+```{r Clustering... showing dendrogram...}
+ddsONormcountsdd <- dist(scale(t(ddsONormcounts)), method = "euclidean")
+ddsONormcountshc <- hclust(ddsONormcountsdd, method = "ward.D")
+svg("Dendrogram_ddsONormcountshc.svg")
+plot(ddsONormcountshc)
+dev.off()
+```
+
+
+### Perform Differential Expression
+```{r Performing differential expression}
+
+#Normalization is the part of DESeq command: https://hbctraining.github.io/DGE_workshop/lessons/02_DGE_count_normalization.html
+ddsO <- DESeq(ddsO)
+#See size factors estimated by DESeq function: sizeFactors(dds)
+```
+
+```{r Plot PCA for all the samples filtered}
+#Vsd transform count
+#Since DESeq2 already run on dds0 blind=FALSE is added 
+vsdO <- DESeq2::vst(ddsO, blind = FALSE)
+head(assay(vsdO), 3)
+#vstONorm <- DESeq2::vst(ddsO)
+write.table(assay(vsdO), "vstONormcounts.txt", sep="\t", quote=F, append = F)
+vstONorm_pca <- plotPCA(vsdO, returnData=TRUE)
+vstONorm_pca["replicate"] <- c(rep(c("rep1","rep2","rep3"),4),c("rep1","rep2"))
+vstONorm_pca["samplenames"] <- c(rep("CRAMP1KO",3),rep("H1.4KO",3),rep("MTF2KO",3),rep("R7508KO",3),rep("SUZ12KO",2))
+percentVarvstOnorm <- round(100 * attr(vstONorm_pca, "percentVar"))
+ggplot(vstONorm_pca, aes(PC1, PC2, color=samplenames,shape=replicate)) +
+  geom_point(size=3) + 
+  xlab(paste0("PC1: ",percentVarvstOnorm[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVarvstOnorm[2],"% variance")) + 
+  coord_fixed()+ scale_color_manual(values = c(rep("#0073C2FF",1), rep("#CD534CFF",1), rep("#EFC000FF",1), rep("#868686FF",1), rep("#77DD77",1)))+
+  theme_bw()+theme(panel.grid.major = element_line(colour = "white"),panel.grid.minor = element_line(colour = "white")) +xlim(-20,57) + ylim(-25,27)
+ggsave("PCA_vstONormcounts.svg", width=5, height=7, units="in", dpi=96)
+```
+
+```{r rlog transformations}
+rldO <- rlog(ddsO, blind=FALSE)
+head(assay(rldO), 3)
+#vstONorm <- DESeq2::vst(ddsO)
+write.table(assay(rldO), "rldONormcounts.txt", sep="\t", quote=F, append = F)
+```
+
+
+### Get Differentially Expressed Genes (DEGs) (Against Report lines)
+
+```{r Getting differential expressed genes,message=FALSE}
+#C1KO_R7508
+res_C1KO_R7508 <- results(ddsO, contrast=c("condition","C1KO","R7508"))
+res_C1KO_R7508sorted = res_C1KO_R7508[order(rownames(res_C1KO_R7508)),]
+write.table(res_C1KO_R7508sorted, "deseq2_res_C1KO_R7508sorted.txt", sep="\t", quote = FALSE, append = FALSE)
+res_C1KO_R7508sorted$threshold <- as.logical(res_C1KO_R7508sorted$padj < 0.05)
+deseq2_res_C1KO_R7508_0.05 <- res_C1KO_R7508sorted[which(res_C1KO_R7508sorted$threshold == TRUE),]
+dim(deseq2_res_C1KO_R7508_0.05)
+write.table(deseq2_res_C1KO_R7508_0.05, "deseq2_res_C1KO_R7508_0.05.txt", sep="\t", quote = FALSE, append = FALSE)
+
+#H1_4KO_R7508
+res_H1_4KO_R7508 <- results(ddsO, contrast=c("condition","H1_4KO","R7508"))
+res_H1_4KO_R7508sorted = res_H1_4KO_R7508[order(rownames(res_H1_4KO_R7508)),]
+write.table(res_H1_4KO_R7508sorted, "deseq2_res_H1_4KO_R7508sorted.txt", sep="\t", quote = FALSE, append = FALSE)
+res_H1_4KO_R7508sorted$threshold <- as.logical(res_H1_4KO_R7508sorted$padj < 0.05)
+deseq2_res_H1_4KO_R7508_0.05 <- res_H1_4KO_R7508sorted[which(res_H1_4KO_R7508sorted$threshold == TRUE),]
+dim(deseq2_res_H1_4KO_R7508_0.05)
+write.table(deseq2_res_H1_4KO_R7508_0.05, "deseq2_res_H1_4KO_R7508_0.05.txt", sep="\t", quote = FALSE, append = FALSE)
+
+
+#MTF2KO_R7508
+res_MTF2KO_R7508 <- results(ddsO, contrast=c("condition","MTF2KO","R7508"))
+res_MTF2KO_R7508sorted = res_MTF2KO_R7508[order(rownames(res_MTF2KO_R7508)),]
+write.table(res_MTF2KO_R7508sorted, "deseq2_res_MTF2KO_R7508sorted.txt", sep="\t", quote = FALSE, append = FALSE)
+res_MTF2KO_R7508sorted$threshold <- as.logical(res_MTF2KO_R7508sorted$padj < 0.05)
+deseq2_res_MTF2KO_R7508_0.05 <- res_MTF2KO_R7508sorted[which(res_MTF2KO_R7508sorted$threshold == TRUE),]
+dim(deseq2_res_MTF2KO_R7508_0.05)
+write.table(deseq2_res_MTF2KO_R7508_0.05, "deseq2_res_MTF2KO_R7508_0.05.txt", sep="\t", quote = FALSE, append = FALSE)
+
+
+#SUZ12KO_R7508
+res_SUZ12KO_R7508 <- results(ddsO, contrast=c("condition","SUZ12KO","R7508"))
+res_SUZ12KO_R7508sorted = res_SUZ12KO_R7508[order(rownames(res_SUZ12KO_R7508)),]
+write.table(res_SUZ12KO_R7508sorted, "deseq2_res_SUZ12KO_R7508sorted.txt", sep="\t", quote = FALSE, append = FALSE)
+res_SUZ12KO_R7508sorted$threshold <- as.logical(res_SUZ12KO_R7508sorted$padj < 0.05)
+deseq2_res_SUZ12KO_R7508_0.05 <- res_SUZ12KO_R7508sorted[which(res_SUZ12KO_R7508sorted$threshold == TRUE),]
+dim(deseq2_res_SUZ12KO_R7508_0.05)
+write.table(deseq2_res_SUZ12KO_R7508_0.05, "deseq2_res_SUZ12KO_R7508_0.05.txt", sep="\t", quote = FALSE, append = FALSE)
+
+```
+
+### Extract Up- and Downregulated genes
+```{r Filtering upregulated and downregulated genes}
+deseq2_res_C1KO_R7508_0.05.up <- deseq2_res_C1KO_R7508_0.05[which(deseq2_res_C1KO_R7508_0.05$log2FoldChange > 1),]
+deseq2_res_C1KO_R7508_0.05.down <- deseq2_res_C1KO_R7508_0.05[which(deseq2_res_C1KO_R7508_0.05$log2FoldChange < -1),]
+deseq2_res_H1_4KO_R7508_0.05.up <- deseq2_res_H1_4KO_R7508_0.05[which(deseq2_res_H1_4KO_R7508_0.05$log2FoldChange > 1),]
+deseq2_res_H1_4KO_R7508_0.05.down <- deseq2_res_H1_4KO_R7508_0.05[which(deseq2_res_H1_4KO_R7508_0.05$log2FoldChange < -1),]
+deseq2_res_MTF2KO_R7508_0.05.up <- deseq2_res_MTF2KO_R7508_0.05[which(deseq2_res_MTF2KO_R7508_0.05$log2FoldChange > 1),]
+deseq2_res_MTF2KO_R7508_0.05.down <- deseq2_res_MTF2KO_R7508_0.05[which(deseq2_res_MTF2KO_R7508_0.05$log2FoldChange < -1),]
+deseq2_res_SUZ12KO_R7508_0.05.up <- deseq2_res_SUZ12KO_R7508_0.05[which(deseq2_res_SUZ12KO_R7508_0.05$log2FoldChange > 1),]
+deseq2_res_SUZ12KO_R7508_0.05.down <- deseq2_res_SUZ12KO_R7508_0.05[which(deseq2_res_SUZ12KO_R7508_0.05$log2FoldChange < -1),]
+```
+
+
+### MA Plot
+```{r plotting MA plot}
+
+plotMA_res_C1KO_R7508 <- ggpubr::ggmaplot(res_C1KO_R7508, fdr = 0.05, fc = 1, size = 0.3,top =0,palette = c("#D22B2B", "#1465AC", "darkgray"),legend="top",font.main = "bold") + ylim(c(-10,10))+ xlim(c(0,16))
+plotMA_res_H1_4KO_R7508 <- ggpubr::ggmaplot(res_H1_4KO_R7508, fdr = 0.05, fc = 1, size = 0.3,top =0,palette = c("#D22B2B", "#1465AC", "darkgray"),legend="top",font.main = "bold") + ylim(c(-10,10))+ xlim(c(0,16))
+plotMA_res_MTF2KO_R7508 <- ggpubr::ggmaplot(res_MTF2KO_R7508, fdr = 0.05, fc = 1, size = 0.3,top =0,palette = c("#D22B2B", "#1465AC", "darkgray"),legend="top",font.main = "bold") + ylim(c(-10,10))+ xlim(c(0,16))
+plotMA_res_SUZ12KO_R7508 <- ggpubr::ggmaplot(res_SUZ12KO_R7508, fdr = 0.05, fc = 1, size = 0.3,top =0,palette = c("#D22B2B", "#1465AC", "darkgray"),legend="top",font.main = "bold") + ylim(c(-10,10)) + xlim(c(0,16))
+gridExtra::grid.arrange(plotMA_res_C1KO_R7508, plotMA_res_H1_4KO_R7508, plotMA_res_MTF2KO_R7508, plotMA_res_SUZ12KO_R7508, ncol=4, nrow =1)
+
+#par(mfrow=c(4,1))
+#plotMA(res_C1KO_R7508, ylim=c(-2,2),main = "res_C1KO_R7508",colSig = "blue")
+#plotMA(res_H1_4KO_R7508, ylim=c(-2,2),main = "res_H1_4KO_R7508",colSig = "red")
+#plotMA(res_MTF2KO_R7508, ylim=c(-2,2),main = "res_MTF2KO_R7508",colSig = "orange")
+#plotMA(res_SUZ12KO_R7508, ylim=c(-2,2),main = "res_SUZ12KO_R7508",colSig = "green")
+```
+### Volcano plot
+```{r Volcano plot}
+# res_C1KO_R7508_df <- data.frame(res_C1KO_R7508)
+# res_C1KO_R7508_df <- res_C1KO_R7508_df %>% 
+#   dplyr::mutate(Expression = case_when(log2FoldChange >= 1 & padj <= 0.05 ~ "Upregulated",
+#                            log2FoldChange <= -1 & padj <= 0.05 ~ "Downregulated",
+#                            TRUE ~ "Unchanged"))
+# rtop_de_genes <- bind_rows(
+#   res_C1KO_R7508_df %>% filter(Expression == 'Upregulated') %>%  arrange(padj, desc(abs(log2FoldChange))) %>% head(10),
+#   res_C1KO_R7508_df %>% filter(Expression == 'Downregulated') %>% arrange(padj, desc(abs(log2FoldChange))) %>% head(10))
+# 
+# res_C1KO_R7508_df_p <- ggplot(res_C1KO_R7508_df, aes(log2FoldChange, -log(padj,10))) +
+#   geom_point(aes(color = Expression), size = 0.5) +
+#   xlab(expression("Log"[2]*"FC")) + 
+#   ylab(expression("-Log"[10]*"padj")) +
+#   scale_color_manual(values = c("dodgerblue3", "gray50", "firebrick3")) +
+#   guides(colour = guide_legend(override.aes = list(size=1.5))) + theme_classic() + theme(legend.position="none")+
+#   geom_text_repel(data = rtop_de_genes, mapping = aes(log2FoldChange, -log(padj,10), label = rownames(rtop_de_genes)),size = 4)  + xlim(-10,10)+ ylim(0,100) 
+
+ 
+for (z in c("res_C1KO_R7508", "res_H1_4KO_R7508", "res_MTF2KO_R7508", "res_SUZ12KO_R7508")){
+  assign("temp7df", data.frame(get(z)))
+  temp7df <- temp7df %>% 
+  dplyr::mutate(Expression = case_when(log2FoldChange >= 1 & padj <= 0.05 ~ "Upregulated",
+                           log2FoldChange <= -1 & padj <= 0.05 ~ "Downregulated",
+                           TRUE ~ "Unchanged"))
+  assign(paste0(z,"_top_de_genes"), bind_rows(
+    temp7df %>% filter(Expression == 'Upregulated') %>%  arrange(padj, desc(abs(log2FoldChange))) %>% head(10),
+    temp7df %>% filter(Expression == 'Downregulated') %>% arrange(padj, desc(abs(log2FoldChange))) %>% head(10)))
+  
+  temp7df_p <- ggplot(temp7df, aes(log2FoldChange, -log(padj,10))) + geom_point(aes(color = Expression), size = 0.3) + xlab(expression("Log"[2]*"FC")) + ylab(expression("-Log"[10]*"padj")) +
+  scale_color_manual(values = c("dodgerblue3", "gray50", "firebrick3")) +
+  guides(colour = guide_legend(override.aes = list(size=1.5))) + theme_classic() + theme(legend.position="none")
+  
+  temp7df <- temp7df %>%  arrange(padj, desc(abs(log2FoldChange)))
+  assign(paste0(z,"_df"),temp7df)
+  assign(paste0(z,"_p"),temp7df_p)
+}
+#While running warning of missing values will come for padj NA
+res_C1KO_R7508_p <- res_C1KO_R7508_p +  geom_text_repel(data = res_C1KO_R7508_top_de_genes, mapping = aes(log2FoldChange, -log(padj,10), label = unlist(lapply(strsplit(rownames(res_C1KO_R7508_top_de_genes), "%"), function(x) x[2]))),size = 2)  + xlim(-10,10)+ ylim(0,100)
+
+res_H1_4KO_R7508_p <- res_H1_4KO_R7508_p + geom_text_repel(data = res_H1_4KO_R7508_top_de_genes, mapping = aes(log2FoldChange, -log(padj,10), label = unlist(lapply(strsplit(rownames(res_H1_4KO_R7508_top_de_genes), "%"), function(x) x[2]))),size = 2)  + xlim(-10,10)+ ylim(0,100)
+
+res_MTF2KO_R7508_p <- res_MTF2KO_R7508_p + geom_text_repel(data = res_MTF2KO_R7508_top_de_genes, mapping = aes(log2FoldChange, -log(padj,10), label = unlist(lapply(strsplit(rownames(res_MTF2KO_R7508_top_de_genes), "%"), function(x) x[2]))),size = 2)  + xlim(-10,10)+ ylim(0,100) 
+
+res_SUZ12KO_R7508_p <- res_SUZ12KO_R7508_p + geom_text_repel(data = res_SUZ12KO_R7508_top_de_genes, mapping = aes(log2FoldChange, -log(padj,10), label = unlist(lapply(strsplit(rownames(res_SUZ12KO_R7508_top_de_genes), "%"), function(x) x[2]))),size = 2)  + xlim(-10,10)+ ylim(0,100) 
+
+
+ggpubr::ggarrange(res_C1KO_R7508_p=res_C1KO_R7508_p, res_H1_4KO_R7508_p=res_H1_4KO_R7508_p, res_MTF2KO_R7508_p=res_MTF2KO_R7508_p, res_SUZ12KO_R7508_p=res_SUZ12KO_R7508_p, ncol=4, nrow=1, common.legend = FALSE,labels =c("res_C1KO_R7508", "res_H1_4KO_R7508", "res_MTF2KO_R7508", "res_SUZ12KO_R7508"), vjust = 2,hjust=-1,font.label = list(size = 8, color = "black", face = "bold", family = NULL))
+
+ggsave("volcanoplot.svg", width=20, height=8.6, units="cm", dpi=96)
+
+res_all_top_de_genes <- list(C1KO_R7508=rownames(res_C1KO_R7508_top_de_genes),H1_4KO_R7508= rownames(res_H1_4KO_R7508_top_de_genes),MTF2KO_R7508 = rownames(res_MTF2KO_R7508_top_de_genes),SUZ12KO_R7508=rownames(res_SUZ12KO_R7508_top_de_genes))
+
+ggvenn::ggvenn(
+  res_all_top_de_genes, 
+  fill_color = c("#0073C2FF","#CD534CFF", "#EFC000FF","#77DD77"),
+  stroke_size = 0.5, set_name_size = 4,set_name_color = c("#0073C2FF","#CD534CFF", "#EFC000FF","#77DD77"),text_size=3,
+  )
+
+rm(temp7df_p)
+rm(temp7df)
+```
+
+
+### Functional analysis
+```{r Performing gProfiler2 analysis}
+#Note: p_value output of gost function is Hypergeometric p-value after correction for multiple testing, see https://biit.cs.ut.ee/gprofiler_beta/page/apis#gost_query_results
+# Prepare gostplot using gene symbol as character
+#C1KO_R7508
+gost.C1KO_R7508_0.05.up <- gost(query=unlist(lapply(strsplit(rownames(deseq2_res_C1KO_R7508_0.05.up), "%"), function(x) x[2])), organism="hsapiens")
+gostplot(gost.C1KO_R7508_0.05.up)
+gost.C1KO_R7508_0.05.down <- gost(query=unlist(lapply(strsplit(rownames(deseq2_res_C1KO_R7508_0.05.down), "%"), function(x) x[2])), organism="hsapiens")
+gostplot(gost.C1KO_R7508_0.05.down)
+
+#H1_4KO_R7508
+gost.H1_4KO_R7508_0.05.up <- gost(query=unlist(lapply(strsplit(rownames(deseq2_res_H1_4KO_R7508_0.05.up), "%"), function(x) x[2])), organism="hsapiens")
+gostplot(gost.H1_4KO_R7508_0.05.up)
+gost.H1_4KO_R7508_0.05.down <- gost(query=unlist(lapply(strsplit(rownames(deseq2_res_H1_4KO_R7508_0.05.down), "%"), function(x) x[2])), organism="hsapiens")
+gostplot(gost.H1_4KO_R7508_0.05.down)
+
+#MTF2KO_R7508
+gost.MTF2KO_R7508_0.05.up <- gost(query=unlist(lapply(strsplit(rownames(deseq2_res_MTF2KO_R7508_0.05.up), "%"), function(x) x[2])), organism="hsapiens")
+gostplot(gost.MTF2KO_R7508_0.05.up)
+gost.MTF2KO_R7508_0.05.down <- gost(query=unlist(lapply(strsplit(rownames(deseq2_res_MTF2KO_R7508_0.05.down), "%"), function(x) x[2])), organism="hsapiens")
+gostplot(gost.MTF2KO_R7508_0.05.down)
+
+#SUZ12KO_R7508
+gost.SUZ12KO_R7508_0.05.up <- gost(query=unlist(lapply(strsplit(rownames(deseq2_res_SUZ12KO_R7508_0.05.up), "%"), function(x) x[2])), organism="hsapiens")
+gostplot(gost.SUZ12KO_R7508_0.05.up)
+gost.SUZ12KO_R7508_0.05.down <- gost(query=unlist(lapply(strsplit(rownames(deseq2_res_SUZ12KO_R7508_0.05.down), "%"), function(x) x[2])), organism="hsapiens")
+gostplot(gost.SUZ12KO_R7508_0.05.down)
+```
+
+### Bar plotting with GO:BP terms
+```{r Bar plotting with GO:BP terms}
+#-------------------------------------------------------------------------------------------------------------------------------------------------#
+#C1KO_R7508
+gost.C1KO_R7508_0.05.up.res.sorted <- gost.C1KO_R7508_0.05.up$result[order(gost.C1KO_R7508_0.05.up$result$p_value),]
+gost.C1KO_R7508_0.05.up.res.sorted["term_name_collapse"] <- paste0(gost.C1KO_R7508_0.05.up.res.sorted$term_id, "_",gost.C1KO_R7508_0.05.up.res.sorted$source,"_" ,gsub(" ", ".", gost.C1KO_R7508_0.05.up.res.sorted$term_name))
+gost.C1KO_R7508_0.05.up.res.sorted_gobp <- gost.C1KO_R7508_0.05.up.res.sorted[which(gost.C1KO_R7508_0.05.up.res.sorted$source == "GO:BP"),]
+gost.C1KO_R7508_0.05.up.res.sorted_gobp_bar <- gost.C1KO_R7508_0.05.up.res.sorted_gobp[,c(11,3)]
+gost.C1KO_R7508_0.05.up.res.sorted_gobp_bar_top <- head(gost.C1KO_R7508_0.05.up.res.sorted_gobp_bar,10)
+gost.C1KO_R7508_0.05.up.res.sorted_gobp_bar_top$p_value <- -log10(gost.C1KO_R7508_0.05.up.res.sorted_gobp_bar_top$p_value)
+ggbarplot(gost.C1KO_R7508_0.05.up.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#5d93c4ff", fill = "#5d93c4ff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = "C1KO_R7508_0.05.up", lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+ggsave("gost.C1KO_R7508_0.05.up.res.sorted_gobp_bar_top.svg", width=12, height=8, units="cm", dpi=96)
+
+gost.C1KO_R7508_0.05.down.res.sorted <- gost.C1KO_R7508_0.05.down$result[order(gost.C1KO_R7508_0.05.down$result$p_value),]
+gost.C1KO_R7508_0.05.down.res.sorted["term_name_collapse"] <- paste0(gost.C1KO_R7508_0.05.down.res.sorted$term_id, "_",gost.C1KO_R7508_0.05.down.res.sorted$source,"_" ,gsub(" ", ".", gost.C1KO_R7508_0.05.down.res.sorted$term_name))
+gost.C1KO_R7508_0.05.down.res.sorted_gobp <- gost.C1KO_R7508_0.05.down.res.sorted[which(gost.C1KO_R7508_0.05.down.res.sorted$source == "GO:BP"),]
+gost.C1KO_R7508_0.05.down.res.sorted_gobp_bar <- gost.C1KO_R7508_0.05.down.res.sorted_gobp[,c(11,3)]
+gost.C1KO_R7508_0.05.down.res.sorted_gobp_bar_top <- head(gost.C1KO_R7508_0.05.down.res.sorted_gobp_bar,10)
+gost.C1KO_R7508_0.05.down.res.sorted_gobp_bar_top$p_value <- -log10(gost.C1KO_R7508_0.05.down.res.sorted_gobp_bar_top$p_value)
+ggbarplot(gost.C1KO_R7508_0.05.down.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#e58e8eff", fill = "#e58e8eff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = "C1KO_R7508_0.05.down", lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+ggsave("gost.C1KO_R7508_0.05.down.res.sorted_gobp_bar_top.svg", width=12, height=8, units="cm", dpi=96)
+#-------------------------------------------------------------------------------------------------------------------------------------------------#
+#-------------------------------------------------------------------------------------------------------------------------------------------------#
+#H1_4KO_R7508
+gost.H1_4KO_R7508_0.05.up.res.sorted <- gost.H1_4KO_R7508_0.05.up$result[order(gost.H1_4KO_R7508_0.05.up$result$p_value),]
+gost.H1_4KO_R7508_0.05.up.res.sorted["term_name_collapse"] <- paste0(gost.H1_4KO_R7508_0.05.up.res.sorted$term_id, "_",gost.H1_4KO_R7508_0.05.up.res.sorted$source,"_" ,gsub(" ", ".", gost.H1_4KO_R7508_0.05.up.res.sorted$term_name))
+gost.H1_4KO_R7508_0.05.up.res.sorted_gobp <- gost.H1_4KO_R7508_0.05.up.res.sorted[which(gost.H1_4KO_R7508_0.05.up.res.sorted$source == "GO:BP"),]
+gost.H1_4KO_R7508_0.05.up.res.sorted_gobp_bar <- gost.H1_4KO_R7508_0.05.up.res.sorted_gobp[,c(11,3)]
+gost.H1_4KO_R7508_0.05.up.res.sorted_gobp_bar_top <- head(gost.H1_4KO_R7508_0.05.up.res.sorted_gobp_bar,10)
+gost.H1_4KO_R7508_0.05.up.res.sorted_gobp_bar_top$p_value <- -log10(gost.H1_4KO_R7508_0.05.up.res.sorted_gobp_bar_top$p_value)
+ggbarplot(gost.H1_4KO_R7508_0.05.up.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#5d93c4ff", fill = "#5d93c4ff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = "H1_4KO_R7508_0.05.up", lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+ggsave("gost.H1_4KO_R7508_0.05.up.res.sorted_gobp_bar_top.svg", width=12, height=8, units="cm", dpi=96)
+
+gost.H1_4KO_R7508_0.05.down.res.sorted <- gost.H1_4KO_R7508_0.05.down$result[order(gost.H1_4KO_R7508_0.05.down$result$p_value),]
+gost.H1_4KO_R7508_0.05.down.res.sorted["term_name_collapse"] <- paste0(gost.H1_4KO_R7508_0.05.down.res.sorted$term_id, "_",gost.H1_4KO_R7508_0.05.down.res.sorted$source,"_" ,gsub(" ", ".", gost.H1_4KO_R7508_0.05.down.res.sorted$term_name))
+gost.H1_4KO_R7508_0.05.down.res.sorted_gobp <- gost.H1_4KO_R7508_0.05.down.res.sorted[which(gost.H1_4KO_R7508_0.05.down.res.sorted$source == "GO:BP"),]
+gost.H1_4KO_R7508_0.05.down.res.sorted_gobp_bar <- gost.H1_4KO_R7508_0.05.down.res.sorted_gobp[,c(11,3)]
+gost.H1_4KO_R7508_0.05.down.res.sorted_gobp_bar_top <- head(gost.H1_4KO_R7508_0.05.down.res.sorted_gobp_bar,10)
+gost.H1_4KO_R7508_0.05.down.res.sorted_gobp_bar_top$p_value <- -log10(gost.H1_4KO_R7508_0.05.down.res.sorted_gobp_bar_top$p_value)
+ggbarplot(gost.H1_4KO_R7508_0.05.down.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#e58e8eff", fill = "#e58e8eff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = "H1_4KO_R7508_0.05.down", lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+ggsave("gost.H1_4KO_R7508_0.05.down.res.sorted_gobp_bar_top.svg", width=12, height=8, units="cm", dpi=96)
+#-------------------------------------------------------------------------------------------------------------------------------------------------#
+#-------------------------------------------------------------------------------------------------------------------------------------------------#
+#MTF2KO_R7508
+gost.MTF2KO_R7508_0.05.up.res.sorted <- gost.MTF2KO_R7508_0.05.up$result[order(gost.MTF2KO_R7508_0.05.up$result$p_value),]
+gost.MTF2KO_R7508_0.05.up.res.sorted["term_name_collapse"] <- paste0(gost.MTF2KO_R7508_0.05.up.res.sorted$term_id, "_",gost.MTF2KO_R7508_0.05.up.res.sorted$source,"_" ,gsub(" ", ".", gost.MTF2KO_R7508_0.05.up.res.sorted$term_name))
+gost.MTF2KO_R7508_0.05.up.res.sorted_gobp <- gost.MTF2KO_R7508_0.05.up.res.sorted[which(gost.MTF2KO_R7508_0.05.up.res.sorted$source == "GO:BP"),]
+gost.MTF2KO_R7508_0.05.up.res.sorted_gobp_bar <- gost.MTF2KO_R7508_0.05.up.res.sorted_gobp[,c(11,3)]
+gost.MTF2KO_R7508_0.05.up.res.sorted_gobp_bar_top <- head(gost.MTF2KO_R7508_0.05.up.res.sorted_gobp_bar,10)
+gost.MTF2KO_R7508_0.05.up.res.sorted_gobp_bar_top$p_value <- -log10(gost.MTF2KO_R7508_0.05.up.res.sorted_gobp_bar_top$p_value)
+ggbarplot(gost.MTF2KO_R7508_0.05.up.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#5d93c4ff", fill = "#5d93c4ff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = "MTF2KO_R7508_0.05.up", lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+ggsave("gost.MTF2KO_R7508_0.05.up.res.sorted_gobp_bar_top.svg", width=12, height=8, units="cm", dpi=96)
+
+gost.MTF2KO_R7508_0.05.down.res.sorted <- gost.MTF2KO_R7508_0.05.down$result[order(gost.MTF2KO_R7508_0.05.down$result$p_value),]
+gost.MTF2KO_R7508_0.05.down.res.sorted["term_name_collapse"] <- paste0(gost.MTF2KO_R7508_0.05.down.res.sorted$term_id, "_",gost.MTF2KO_R7508_0.05.down.res.sorted$source,"_" ,gsub(" ", ".", gost.MTF2KO_R7508_0.05.down.res.sorted$term_name))
+gost.MTF2KO_R7508_0.05.down.res.sorted_gobp <- gost.MTF2KO_R7508_0.05.down.res.sorted[which(gost.MTF2KO_R7508_0.05.down.res.sorted$source == "GO:BP"),]
+gost.MTF2KO_R7508_0.05.down.res.sorted_gobp_bar <- gost.MTF2KO_R7508_0.05.down.res.sorted_gobp[,c(11,3)]
+gost.MTF2KO_R7508_0.05.down.res.sorted_gobp_bar_top <- head(gost.MTF2KO_R7508_0.05.down.res.sorted_gobp_bar,10)
+gost.MTF2KO_R7508_0.05.down.res.sorted_gobp_bar_top$p_value <- -log10(gost.MTF2KO_R7508_0.05.down.res.sorted_gobp_bar_top$p_value)
+ggbarplot(gost.MTF2KO_R7508_0.05.down.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#e58e8eff", fill = "#e58e8eff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = "MTF2KO_R7508_0.05.down", lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+ggsave("gost.MTF2KO_R7508_0.05.down.res.sorted_gobp_bar_top.svg", width=12, height=8, units="cm", dpi=96)
+#-------------------------------------------------------------------------------------------------------------------------------------------------#
+#-------------------------------------------------------------------------------------------------------------------------------------------------#
+#SUZ12KO_R7508
+gost.SUZ12KO_R7508_0.05.up.res.sorted <- gost.SUZ12KO_R7508_0.05.up$result[order(gost.SUZ12KO_R7508_0.05.up$result$p_value),]
+gost.SUZ12KO_R7508_0.05.up.res.sorted["term_name_collapse"] <- paste0(gost.SUZ12KO_R7508_0.05.up.res.sorted$term_id, "_",gost.SUZ12KO_R7508_0.05.up.res.sorted$source,"_" ,gsub(" ", ".", gost.SUZ12KO_R7508_0.05.up.res.sorted$term_name))
+gost.SUZ12KO_R7508_0.05.up.res.sorted_gobp <- gost.SUZ12KO_R7508_0.05.up.res.sorted[which(gost.SUZ12KO_R7508_0.05.up.res.sorted$source == "GO:BP"),]
+gost.SUZ12KO_R7508_0.05.up.res.sorted_gobp_bar <- gost.SUZ12KO_R7508_0.05.up.res.sorted_gobp[,c(11,3)]
+gost.SUZ12KO_R7508_0.05.up.res.sorted_gobp_bar_top <- head(gost.SUZ12KO_R7508_0.05.up.res.sorted_gobp_bar,10)
+gost.SUZ12KO_R7508_0.05.up.res.sorted_gobp_bar_top$p_value <- -log10(gost.SUZ12KO_R7508_0.05.up.res.sorted_gobp_bar_top$p_value)
+ggbarplot(gost.SUZ12KO_R7508_0.05.up.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#5d93c4ff", fill = "#5d93c4ff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = "SUZ12KO_R7508_0.05.up", lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+ggsave("gost.SUZ12KO_R7508_0.05.up.res.sorted_gobp_bar_top.svg", width=12, height=8, units="cm", dpi=96)
+
+gost.SUZ12KO_R7508_0.05.down.res.sorted <- gost.SUZ12KO_R7508_0.05.down$result[order(gost.SUZ12KO_R7508_0.05.down$result$p_value),]
+gost.SUZ12KO_R7508_0.05.down.res.sorted["term_name_collapse"] <- paste0(gost.SUZ12KO_R7508_0.05.down.res.sorted$term_id, "_",gost.SUZ12KO_R7508_0.05.down.res.sorted$source,"_" ,gsub(" ", ".", gost.SUZ12KO_R7508_0.05.down.res.sorted$term_name))
+gost.SUZ12KO_R7508_0.05.down.res.sorted_gobp <- gost.SUZ12KO_R7508_0.05.down.res.sorted[which(gost.SUZ12KO_R7508_0.05.down.res.sorted$source == "GO:BP"),]
+gost.SUZ12KO_R7508_0.05.down.res.sorted_gobp_bar <- gost.SUZ12KO_R7508_0.05.down.res.sorted_gobp[,c(11,3)]
+gost.SUZ12KO_R7508_0.05.down.res.sorted_gobp_bar_top <- head(gost.SUZ12KO_R7508_0.05.down.res.sorted_gobp_bar,10)
+gost.SUZ12KO_R7508_0.05.down.res.sorted_gobp_bar_top$p_value <- -log10(gost.SUZ12KO_R7508_0.05.down.res.sorted_gobp_bar_top$p_value)
+ggbarplot(gost.SUZ12KO_R7508_0.05.down.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#e58e8eff", fill = "#e58e8eff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = "SUZ12KO_R7508_0.05.down", lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+ggsave("gost.SUZ12KO_R7508_0.05.down.res.sorted_gobp_bar_top.svg", width=12, height=8, units="cm", dpi=96)
+#-------------------------------------------------------------------------------------------------------------------------------------------------#
+
+```
+
+
+### Get Differentially Expressed Genes (DEGs) (Against Each Other KO lines)
+
+```{r Getting differential expressed genes (Against Each Other KO lines),message=FALSE}
+#C1KO_H1_4KO
+res_C1KO_H1_4KO <- results(ddsO, contrast=c("condition","C1KO","H1_4KO"))
+res_C1KO_H1_4KOsorted = res_C1KO_H1_4KO[order(rownames(res_C1KO_H1_4KO)),]
+write.table(res_C1KO_H1_4KOsorted, "deseq2_res_C1KO_H1_4KOsorted.txt", sep="\t", quote = FALSE, append = FALSE)
+res_C1KO_H1_4KOsorted$threshold <- as.logical(res_C1KO_H1_4KOsorted$padj < 0.05)
+deseq2_res_C1KO_H1_4KO_0.05 <- res_C1KO_H1_4KOsorted[which(res_C1KO_H1_4KOsorted$threshold == TRUE),]
+dim(deseq2_res_C1KO_H1_4KO_0.05)
+write.table(deseq2_res_C1KO_H1_4KO_0.05, "deseq2_res_C1KO_H1_4KO_0.05.txt", sep="\t", quote = FALSE, append = FALSE)
+
+#MTF2KO_H1_4KO
+res_MTF2KO_H1_4KO <- results(ddsO, contrast=c("condition","MTF2KO","H1_4KO"))
+res_MTF2KO_H1_4KOsorted = res_MTF2KO_H1_4KO[order(rownames(res_MTF2KO_H1_4KO)),]
+write.table(res_MTF2KO_H1_4KOsorted, "deseq2_res_MTF2KO_H1_4KOsorted.txt", sep="\t", quote = FALSE, append = FALSE)
+res_MTF2KO_H1_4KOsorted$threshold <- as.logical(res_MTF2KO_H1_4KOsorted$padj < 0.05)
+deseq2_res_MTF2KO_H1_4KO_0.05 <- res_MTF2KO_H1_4KOsorted[which(res_MTF2KO_H1_4KOsorted$threshold == TRUE),]
+dim(deseq2_res_MTF2KO_H1_4KO_0.05)
+write.table(deseq2_res_MTF2KO_H1_4KO_0.05, "deseq2_res_MTF2KO_H1_4KO_0.05.txt", sep="\t", quote = FALSE, append = FALSE)
+
+
+#SUZ12KO_H1_4KO
+res_SUZ12KO_H1_4KO <- results(ddsO, contrast=c("condition","SUZ12KO","H1_4KO"))
+res_SUZ12KO_H1_4KOsorted = res_SUZ12KO_H1_4KO[order(rownames(res_SUZ12KO_H1_4KO)),]
+write.table(res_SUZ12KO_H1_4KOsorted, "deseq2_res_SUZ12KO_H1_4KOsorted.txt", sep="\t", quote = FALSE, append = FALSE)
+res_SUZ12KO_H1_4KOsorted$threshold <- as.logical(res_SUZ12KO_H1_4KOsorted$padj < 0.05)
+deseq2_res_SUZ12KO_H1_4KO_0.05 <- res_SUZ12KO_H1_4KOsorted[which(res_SUZ12KO_H1_4KOsorted$threshold == TRUE),]
+dim(deseq2_res_SUZ12KO_H1_4KO_0.05)
+write.table(deseq2_res_SUZ12KO_H1_4KO_0.05, "deseq2_res_SUZ12KO_H1_4KO_0.05.txt", sep="\t", quote = FALSE, append = FALSE)
+
+#MTF2KO_C1KO
+res_MTF2KO_C1KO <- results(ddsO, contrast=c("condition","MTF2KO","C1KO"))
+res_MTF2KO_C1KOsorted = res_MTF2KO_C1KO[order(rownames(res_MTF2KO_C1KO)),]
+write.table(res_MTF2KO_C1KOsorted, "deseq2_res_MTF2KO_C1KOsorted.txt", sep="\t", quote = FALSE, append = FALSE)
+res_MTF2KO_C1KOsorted$threshold <- as.logical(res_MTF2KO_C1KOsorted$padj < 0.05)
+deseq2_res_MTF2KO_C1KO_0.05 <- res_MTF2KO_C1KOsorted[which(res_MTF2KO_C1KOsorted$threshold == TRUE),]
+dim(deseq2_res_MTF2KO_C1KO_0.05)
+write.table(deseq2_res_MTF2KO_C1KO_0.05, "deseq2_res_MTF2KO_C1KO_0.05.txt", sep="\t", quote = FALSE, append = FALSE)
+
+
+#SUZ12KO_C1KO
+res_SUZ12KO_C1KO <- results(ddsO, contrast=c("condition","SUZ12KO","C1KO"))
+res_SUZ12KO_C1KOsorted = res_SUZ12KO_C1KO[order(rownames(res_SUZ12KO_C1KO)),]
+write.table(res_SUZ12KO_C1KOsorted, "deseq2_res_SUZ12KO_C1KOsorted.txt", sep="\t", quote = FALSE, append = FALSE)
+res_SUZ12KO_C1KOsorted$threshold <- as.logical(res_SUZ12KO_C1KOsorted$padj < 0.05)
+deseq2_res_SUZ12KO_C1KO_0.05 <- res_SUZ12KO_C1KOsorted[which(res_SUZ12KO_C1KOsorted$threshold == TRUE),]
+dim(deseq2_res_SUZ12KO_C1KO_0.05)
+write.table(deseq2_res_SUZ12KO_C1KO_0.05, "deseq2_res_SUZ12KO_C1KO_0.05.txt", sep="\t", quote = FALSE, append = FALSE)
+
+#SUZ12KO_MTF2KO
+res_SUZ12KO_MTF2KO <- results(ddsO, contrast=c("condition","SUZ12KO","MTF2KO"))
+res_SUZ12KO_MTF2KOsorted = res_SUZ12KO_MTF2KO[order(rownames(res_SUZ12KO_MTF2KO)),]
+write.table(res_SUZ12KO_MTF2KOsorted, "deseq2_res_SUZ12KO_MTF2KOsorted.txt", sep="\t", quote = FALSE, append = FALSE)
+res_SUZ12KO_MTF2KOsorted$threshold <- as.logical(res_SUZ12KO_MTF2KOsorted$padj < 0.05)
+deseq2_res_SUZ12KO_MTF2KO_0.05 <- res_SUZ12KO_MTF2KOsorted[which(res_SUZ12KO_MTF2KOsorted$threshold == TRUE),]
+dim(deseq2_res_SUZ12KO_MTF2KO_0.05)
+write.table(deseq2_res_SUZ12KO_MTF2KO_0.05, "deseq2_res_SUZ12KO_MTF2KO_0.05.txt", sep="\t", quote = FALSE, append = FALSE)
+```
+
+### MA Plot  (Against Each Other KO lines)
+
+```{r plotting MA plot (Against Each Other KO lines)}
+par(mfrow=c(2,4))
+plotMA(res_C1KO_H1_4KO, ylim=c(-2,2),main = "res_C1KO_H1_4KO",colSig = "darkblue")
+plotMA(res_MTF2KO_H1_4KO, ylim=c(-2,2),main = "res_MTF2KO_H1_4KO",colSig = "darkorange")
+plotMA(res_SUZ12KO_H1_4KO, ylim=c(-2,2),main = "res_SUZ12KO_H1_4KO",colSig = "darkgreen")
+plotMA(res_MTF2KO_C1KO, ylim=c(-2,2),main = "res_MTF2KO_C1KO",colSig = "#A36A00")
+plotMA(res_SUZ12KO_C1KO, ylim=c(-2,2),main = "res_SUZ12KO_C1KO",colSig = "#3ACF3A")
+plotMA(res_SUZ12KO_MTF2KO, ylim=c(-2,2),main = "res_SUZ12KO_MTF2KO",colSig = "#00E091")
+```
+
+
+### Extract Up- and Downregulated genes  (Against Each Other KO lines)
+
+```{r Filtering upregulated and downregulated genes (Against Each Other KO lines)}
+deseq2_res_C1KO_H1_4KO_0.05.up <- deseq2_res_C1KO_H1_4KO_0.05[which(deseq2_res_C1KO_H1_4KO_0.05$log2FoldChange > 1),]
+deseq2_res_C1KO_H1_4KO_0.05.down <- deseq2_res_C1KO_H1_4KO_0.05[which(deseq2_res_C1KO_H1_4KO_0.05$log2FoldChange < -1),]
+deseq2_res_MTF2KO_H1_4KO_0.05.up <- deseq2_res_MTF2KO_H1_4KO_0.05[which(deseq2_res_MTF2KO_H1_4KO_0.05$log2FoldChange > 1),]
+deseq2_res_MTF2KO_H1_4KO_0.05.down <- deseq2_res_MTF2KO_H1_4KO_0.05[which(deseq2_res_MTF2KO_H1_4KO_0.05$log2FoldChange < -1),]
+deseq2_res_SUZ12KO_H1_4KO_0.05.up <- deseq2_res_SUZ12KO_H1_4KO_0.05[which(deseq2_res_SUZ12KO_H1_4KO_0.05$log2FoldChange > 1),]
+deseq2_res_SUZ12KO_H1_4KO_0.05.down <- deseq2_res_SUZ12KO_H1_4KO_0.05[which(deseq2_res_SUZ12KO_H1_4KO_0.05$log2FoldChange < -1),]
+deseq2_res_MTF2KO_C1KO_0.05.up <- deseq2_res_MTF2KO_C1KO_0.05[which(deseq2_res_MTF2KO_C1KO_0.05$log2FoldChange > 1),]
+deseq2_res_MTF2KO_C1KO_0.05.down <- deseq2_res_MTF2KO_C1KO_0.05[which(deseq2_res_MTF2KO_C1KO_0.05$log2FoldChange < -1),]
+deseq2_res_SUZ12KO_C1KO_0.05.up <- deseq2_res_SUZ12KO_C1KO_0.05[which(deseq2_res_SUZ12KO_C1KO_0.05$log2FoldChange > 1),]
+deseq2_res_SUZ12KO_C1KO_0.05.down <- deseq2_res_SUZ12KO_C1KO_0.05[which(deseq2_res_SUZ12KO_C1KO_0.05$log2FoldChange < -1),]
+deseq2_res_SUZ12KO_MTF2KO_0.05.up <- deseq2_res_SUZ12KO_MTF2KO_0.05[which(deseq2_res_SUZ12KO_MTF2KO_0.05$log2FoldChange > 1),]
+deseq2_res_SUZ12KO_MTF2KO_0.05.down <- deseq2_res_SUZ12KO_MTF2KO_0.05[which(deseq2_res_SUZ12KO_MTF2KO_0.05$log2FoldChange < -1),]
+```
+
+
+###  Functional analysis (Against Each Other KO lines)
+```{r Performing gProfiler2 analysis (Against Each Other KO lines)}
+#Note: p_value output of gost function is Hypergeometric p-value after correction for multiple testing, see https://biit.cs.ut.ee/gprofiler_beta/page/apis#gost_query_results
+# Prepare gostplot using gene symbol as character
+#C1KO_H1_4KO
+gost.C1KO_H1_4KO_0.05.up <- gost(query=unlist(lapply(strsplit(rownames(deseq2_res_C1KO_H1_4KO_0.05.up), "%"), function(x) x[2])), organism="hsapiens")
+gostplot(gost.C1KO_H1_4KO_0.05.up)
+gost.C1KO_H1_4KO_0.05.down <- gost(query=unlist(lapply(strsplit(rownames(deseq2_res_C1KO_H1_4KO_0.05.down), "%"), function(x) x[2])), organism="hsapiens")
+gostplot(gost.C1KO_H1_4KO_0.05.down)
+#MTF2KO_H1_4KO
+gost.MTF2KO_H1_4KO_0.05.up <- gost(query=unlist(lapply(strsplit(rownames(deseq2_res_MTF2KO_H1_4KO_0.05.up), "%"), function(x) x[2])), organism="hsapiens")
+gostplot(gost.MTF2KO_H1_4KO_0.05.up)                    
+gost.MTF2KO_H1_4KO_0.05.down <- gost(query=unlist(lapply(strsplit(rownames(deseq2_res_MTF2KO_H1_4KO_0.05.down), "%"), function(x) x[2])), organism="hsapiens")
+gostplot(gost.MTF2KO_H1_4KO_0.05.down)
+#SUZ12KO_H1_4KO
+gost.SUZ12KO_H1_4KO_0.05.up <- gost(query=unlist(lapply(strsplit(rownames(deseq2_res_SUZ12KO_H1_4KO_0.05.up), "%"), function(x) x[2])), organism="hsapiens")
+gostplot(gost.SUZ12KO_H1_4KO_0.05.up)
+gost.SUZ12KO_H1_4KO_0.05.down <- gost(query=unlist(lapply(strsplit(rownames(deseq2_res_SUZ12KO_H1_4KO_0.05.down), "%"), function(x) x[2])), organism="hsapiens")
+gostplot(gost.SUZ12KO_H1_4KO_0.05.down)
+#MTF2KO_C1KO
+gost.MTF2KO_C1KO_0.05.up <- gost(query=unlist(lapply(strsplit(rownames(deseq2_res_MTF2KO_C1KO_0.05.up), "%"), function(x) x[2])), organism="hsapiens")
+gostplot(gost.MTF2KO_C1KO_0.05.up)
+gost.MTF2KO_C1KO_0.05.down <- gost(query=unlist(lapply(strsplit(rownames(deseq2_res_MTF2KO_C1KO_0.05.down), "%"), function(x) x[2])), organism="hsapiens")
+gostplot(gost.MTF2KO_C1KO_0.05.down)
+#SUZ12KO_C1KO
+gost.SUZ12KO_C1KO_0.05.up <- gost(query=unlist(lapply(strsplit(rownames(deseq2_res_SUZ12KO_C1KO_0.05.up), "%"), function(x) x[2])), organism="hsapiens")
+gostplot(gost.SUZ12KO_C1KO_0.05.up)
+gost.SUZ12KO_C1KO_0.05.down <- gost(query=unlist(lapply(strsplit(rownames(deseq2_res_SUZ12KO_C1KO_0.05.down), "%"), function(x) x[2])), organism="hsapiens")
+gostplot(gost.SUZ12KO_C1KO_0.05.down)
+#SUZ12KO_MTF2KO
+gost.SUZ12KO_MTF2KO_0.05.up <- gost(query=unlist(lapply(strsplit(rownames(deseq2_res_SUZ12KO_MTF2KO_0.05.up), "%"), function(x) x[2])), organism="hsapiens")
+gostplot(gost.SUZ12KO_MTF2KO_0.05.up)
+gost.SUZ12KO_MTF2KO_0.05.down <- gost(query=unlist(lapply(strsplit(rownames(deseq2_res_SUZ12KO_MTF2KO_0.05.down), "%"), function(x) x[2])), organism="hsapiens")
+gostplot(gost.SUZ12KO_MTF2KO_0.05.down)
+```
+
+
+
+### Bar plotting with GO:BP terms (Against Each Other KO lines)
+
+```{r Bar plotting with GO:BP terms (Against Each Other KO lines)}
+#-------------------------------------------------------------------------------------------------------------------------------------------------#
+#C1KO_H1_4KO
+gost.C1KO_H1_4KO_0.05.up.res.sorted <- gost.C1KO_H1_4KO_0.05.up$result[order(gost.C1KO_H1_4KO_0.05.up$result$p_value),]
+gost.C1KO_H1_4KO_0.05.up.res.sorted_gobp <- gost.C1KO_H1_4KO_0.05.up.res.sorted[which(gost.C1KO_H1_4KO_0.05.up.res.sorted$source == "GO:BP"),]
+gost.C1KO_H1_4KO_0.05.up.res.sorted_gobp_bar <- gost.C1KO_H1_4KO_0.05.up.res.sorted_gobp[,c(11,3)]
+gost.C1KO_H1_4KO_0.05.up.res.sorted_gobp_bar_top <- head(gost.C1KO_H1_4KO_0.05.up.res.sorted_gobp_bar,10)
+gost.C1KO_H1_4KO_0.05.up.res.sorted_gobp_bar_top$p_value <- -log10(gost.C1KO_H1_4KO_0.05.up.res.sorted_gobp_bar_top$p_value)
+ggbarplot(gost.C1KO_H1_4KO_0.05.up.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#5d93c4ff", fill = "#5d93c4ff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = "C1KO_H1_4KO_0.05.up", lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+ggsave("gost.C1KO_H1_4KO_0.05.up.res.sorted_gobp_bar_top.svg", width=12, height=8, units="cm", dpi=96)
+
+gost.C1KO_H1_4KO_0.05.down.res.sorted <- gost.C1KO_H1_4KO_0.05.down$result[order(gost.C1KO_H1_4KO_0.05.down$result$p_value),]
+gost.C1KO_H1_4KO_0.05.down.res.sorted_gobp <- gost.C1KO_H1_4KO_0.05.down.res.sorted[which(gost.C1KO_H1_4KO_0.05.down.res.sorted$source == "GO:BP"),]
+gost.C1KO_H1_4KO_0.05.down.res.sorted_gobp_bar <- gost.C1KO_H1_4KO_0.05.down.res.sorted_gobp[,c(11,3)]
+gost.C1KO_H1_4KO_0.05.down.res.sorted_gobp_bar_top <- head(gost.C1KO_H1_4KO_0.05.down.res.sorted_gobp_bar,10)
+gost.C1KO_H1_4KO_0.05.down.res.sorted_gobp_bar_top$p_value <- -log10(gost.C1KO_H1_4KO_0.05.down.res.sorted_gobp_bar_top$p_value)
+ggbarplot(gost.C1KO_H1_4KO_0.05.down.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#e58e8eff", fill = "#e58e8eff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = "C1KO_H1_4KO_0.05.down", lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+ggsave("gost.C1KO_H1_4KO_0.05.down.res.sorted_gobp_bar_top.svg", width=12, height=8, units="cm", dpi=96)
+#-------------------------------------------------------------------------------------------------------------------------------------------------#
+#-------------------------------------------------------------------------------------------------------------------------------------------------#
+#MTF2KO_H1_4KO
+gost.MTF2KO_H1_4KO_0.05.up.res.sorted <- gost.MTF2KO_H1_4KO_0.05.up$result[order(gost.MTF2KO_H1_4KO_0.05.up$result$p_value),]
+gost.MTF2KO_H1_4KO_0.05.up.res.sorted_gobp <- gost.MTF2KO_H1_4KO_0.05.up.res.sorted[which(gost.MTF2KO_H1_4KO_0.05.up.res.sorted$source == "GO:BP"),]
+gost.MTF2KO_H1_4KO_0.05.up.res.sorted_gobp_bar <- gost.MTF2KO_H1_4KO_0.05.up.res.sorted_gobp[,c(11,3)]
+gost.MTF2KO_H1_4KO_0.05.up.res.sorted_gobp_bar_top <- head(gost.MTF2KO_H1_4KO_0.05.up.res.sorted_gobp_bar,10)
+gost.MTF2KO_H1_4KO_0.05.up.res.sorted_gobp_bar_top$p_value <- -log10(gost.MTF2KO_H1_4KO_0.05.up.res.sorted_gobp_bar_top$p_value)
+ggbarplot(gost.MTF2KO_H1_4KO_0.05.up.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#5d93c4ff", fill = "#5d93c4ff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = "MTF2KO_H1_4KO_0.05.up", lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+ggsave("gost.MTF2KO_H1_4KO_0.05.up.res.sorted_gobp_bar_top.svg", width=12, height=8, units="cm", dpi=96)
+
+gost.MTF2KO_H1_4KO_0.05.down.res.sorted <- gost.MTF2KO_H1_4KO_0.05.down$result[order(gost.MTF2KO_H1_4KO_0.05.down$result$p_value),]
+gost.MTF2KO_H1_4KO_0.05.down.res.sorted_gobp <- gost.MTF2KO_H1_4KO_0.05.down.res.sorted[which(gost.MTF2KO_H1_4KO_0.05.down.res.sorted$source == "GO:BP"),]
+gost.MTF2KO_H1_4KO_0.05.down.res.sorted_gobp_bar <- gost.MTF2KO_H1_4KO_0.05.down.res.sorted_gobp[,c(11,3)]
+gost.MTF2KO_H1_4KO_0.05.down.res.sorted_gobp_bar_top <- head(gost.MTF2KO_H1_4KO_0.05.down.res.sorted_gobp_bar,10)
+gost.MTF2KO_H1_4KO_0.05.down.res.sorted_gobp_bar_top$p_value <- -log10(gost.MTF2KO_H1_4KO_0.05.down.res.sorted_gobp_bar_top$p_value)
+ggbarplot(gost.MTF2KO_H1_4KO_0.05.down.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#e58e8eff", fill = "#e58e8eff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = "MTF2KO_H1_4KO_0.05.down", lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+ggsave("gost.MTF2KO_H1_4KO_0.05.down.res.sorted_gobp_bar_top.svg", width=12, height=8, units="cm", dpi=96)
+#-------------------------------------------------------------------------------------------------------------------------------------------------#
+#-------------------------------------------------------------------------------------------------------------------------------------------------#
+#SUZ12KO_H1_4KO
+gost.SUZ12KO_H1_4KO_0.05.up.res.sorted <- gost.SUZ12KO_H1_4KO_0.05.up$result[order(gost.SUZ12KO_H1_4KO_0.05.up$result$p_value),]
+gost.SUZ12KO_H1_4KO_0.05.up.res.sorted_gobp <- gost.SUZ12KO_H1_4KO_0.05.up.res.sorted[which(gost.SUZ12KO_H1_4KO_0.05.up.res.sorted$source == "GO:BP"),]
+gost.SUZ12KO_H1_4KO_0.05.up.res.sorted_gobp_bar <- gost.SUZ12KO_H1_4KO_0.05.up.res.sorted_gobp[,c(11,3)]
+gost.SUZ12KO_H1_4KO_0.05.up.res.sorted_gobp_bar_top <- head(gost.SUZ12KO_H1_4KO_0.05.up.res.sorted_gobp_bar,10)
+gost.SUZ12KO_H1_4KO_0.05.up.res.sorted_gobp_bar_top$p_value <- -log10(gost.SUZ12KO_H1_4KO_0.05.up.res.sorted_gobp_bar_top$p_value)
+ggbarplot(gost.SUZ12KO_H1_4KO_0.05.up.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#5d93c4ff", fill = "#5d93c4ff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = "SUZ12KO_H1_4KO_0.05.up", lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+ggsave("gost.SUZ12KO_H1_4KO_0.05.up.res.sorted_gobp_bar_top.svg", width=12, height=8, units="cm", dpi=96)
+
+gost.SUZ12KO_H1_4KO_0.05.down.res.sorted <- gost.SUZ12KO_H1_4KO_0.05.down$result[order(gost.SUZ12KO_H1_4KO_0.05.down$result$p_value),]
+gost.SUZ12KO_H1_4KO_0.05.down.res.sorted_gobp <- gost.SUZ12KO_H1_4KO_0.05.down.res.sorted[which(gost.SUZ12KO_H1_4KO_0.05.down.res.sorted$source == "GO:BP"),]
+gost.SUZ12KO_H1_4KO_0.05.down.res.sorted_gobp_bar <- gost.SUZ12KO_H1_4KO_0.05.down.res.sorted_gobp[,c(11,3)]
+gost.SUZ12KO_H1_4KO_0.05.down.res.sorted_gobp_bar_top <- head(gost.SUZ12KO_H1_4KO_0.05.down.res.sorted_gobp_bar,10)
+gost.SUZ12KO_H1_4KO_0.05.down.res.sorted_gobp_bar_top$p_value <- -log10(gost.SUZ12KO_H1_4KO_0.05.down.res.sorted_gobp_bar_top$p_value)
+ggbarplot(gost.SUZ12KO_H1_4KO_0.05.down.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#e58e8eff", fill = "#e58e8eff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = "SUZ12KO_H1_4KO_0.05.down", lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+ggsave("gost.SUZ12KO_H1_4KO_0.05.down.res.sorted_gobp_bar_top.svg", width=12, height=8, units="cm", dpi=96)
+#-------------------------------------------------------------------------------------------------------------------------------------------------#
+#-------------------------------------------------------------------------------------------------------------------------------------------------#
+#MTF2KO_C1KO
+gost.MTF2KO_C1KO_0.05.up.res.sorted <- gost.MTF2KO_C1KO_0.05.up$result[order(gost.MTF2KO_C1KO_0.05.up$result$p_value),]
+gost.MTF2KO_C1KO_0.05.up.res.sorted_gobp <- gost.MTF2KO_C1KO_0.05.up.res.sorted[which(gost.MTF2KO_C1KO_0.05.up.res.sorted$source == "GO:BP"),]
+gost.MTF2KO_C1KO_0.05.up.res.sorted_gobp_bar <- gost.MTF2KO_C1KO_0.05.up.res.sorted_gobp[,c(11,3)]
+gost.MTF2KO_C1KO_0.05.up.res.sorted_gobp_bar_top <- head(gost.MTF2KO_C1KO_0.05.up.res.sorted_gobp_bar,10)
+gost.MTF2KO_C1KO_0.05.up.res.sorted_gobp_bar_top$p_value <- -log10(gost.MTF2KO_C1KO_0.05.up.res.sorted_gobp_bar_top$p_value)
+ggbarplot(gost.MTF2KO_C1KO_0.05.up.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#5d93c4ff", fill = "#5d93c4ff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = "MTF2KO_C1KO_0.05.up", lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+ggsave("gost.MTF2KO_C1KO_0.05.up.res.sorted_gobp_bar_top.svg", width=12, height=8, units="cm", dpi=96)
+
+gost.MTF2KO_C1KO_0.05.down.res.sorted <- gost.MTF2KO_C1KO_0.05.down$result[order(gost.MTF2KO_C1KO_0.05.down$result$p_value),]
+gost.MTF2KO_C1KO_0.05.down.res.sorted_gobp <- gost.MTF2KO_C1KO_0.05.down.res.sorted[which(gost.MTF2KO_C1KO_0.05.down.res.sorted$source == "GO:BP"),]
+gost.MTF2KO_C1KO_0.05.down.res.sorted_gobp_bar <- gost.MTF2KO_C1KO_0.05.down.res.sorted_gobp[,c(11,3)]
+gost.MTF2KO_C1KO_0.05.down.res.sorted_gobp_bar_top <- head(gost.MTF2KO_C1KO_0.05.down.res.sorted_gobp_bar,10)
+gost.MTF2KO_C1KO_0.05.down.res.sorted_gobp_bar_top$p_value <- -log10(gost.MTF2KO_C1KO_0.05.down.res.sorted_gobp_bar_top$p_value)
+ggbarplot(gost.MTF2KO_C1KO_0.05.down.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#e58e8eff", fill = "#e58e8eff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = "MTF2KO_C1KO_0.05.down", lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+ggsave("gost.MTF2KO_C1KO_0.05.down.res.sorted_gobp_bar_top.svg", width=12, height=8, units="cm", dpi=96)
+#-------------------------------------------------------------------------------------------------------------------------------------------------#
+#-------------------------------------------------------------------------------------------------------------------------------------------------#
+#SUZ12KO_C1KO
+gost.SUZ12KO_C1KO_0.05.up.res.sorted <- gost.SUZ12KO_C1KO_0.05.up$result[order(gost.SUZ12KO_C1KO_0.05.up$result$p_value),]
+gost.SUZ12KO_C1KO_0.05.up.res.sorted_gobp <- gost.SUZ12KO_C1KO_0.05.up.res.sorted[which(gost.SUZ12KO_C1KO_0.05.up.res.sorted$source == "GO:BP"),]
+gost.SUZ12KO_C1KO_0.05.up.res.sorted_gobp_bar <- gost.SUZ12KO_C1KO_0.05.up.res.sorted_gobp[,c(11,3)]
+gost.SUZ12KO_C1KO_0.05.up.res.sorted_gobp_bar_top <- head(gost.SUZ12KO_C1KO_0.05.up.res.sorted_gobp_bar,10)
+gost.SUZ12KO_C1KO_0.05.up.res.sorted_gobp_bar_top$p_value <- -log10(gost.SUZ12KO_C1KO_0.05.up.res.sorted_gobp_bar_top$p_value)
+ggbarplot(gost.SUZ12KO_C1KO_0.05.up.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#5d93c4ff", fill = "#5d93c4ff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = "SUZ12KO_C1KO_0.05.up", lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+ggsave("gost.SUZ12KO_C1KO_0.05.up.res.sorted_gobp_bar_top.svg", width=12, height=8, units="cm", dpi=96)
+
+gost.SUZ12KO_C1KO_0.05.down.res.sorted <- gost.SUZ12KO_C1KO_0.05.down$result[order(gost.SUZ12KO_C1KO_0.05.down$result$p_value),]
+gost.SUZ12KO_C1KO_0.05.down.res.sorted_gobp <- gost.SUZ12KO_C1KO_0.05.down.res.sorted[which(gost.SUZ12KO_C1KO_0.05.down.res.sorted$source == "GO:BP"),]
+gost.SUZ12KO_C1KO_0.05.down.res.sorted_gobp_bar <- gost.SUZ12KO_C1KO_0.05.down.res.sorted_gobp[,c(11,3)]
+gost.SUZ12KO_C1KO_0.05.down.res.sorted_gobp_bar_top <- head(gost.SUZ12KO_C1KO_0.05.down.res.sorted_gobp_bar,10)
+gost.SUZ12KO_C1KO_0.05.down.res.sorted_gobp_bar_top$p_value <- -log10(gost.SUZ12KO_C1KO_0.05.down.res.sorted_gobp_bar_top$p_value)
+ggbarplot(gost.SUZ12KO_C1KO_0.05.down.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#e58e8eff", fill = "#e58e8eff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = "SUZ12KO_C1KO_0.05.down", lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+ggsave("gost.SUZ12KO_C1KO_0.05.down.res.sorted_gobp_bar_top.svg", width=12, height=8, units="cm", dpi=96)
+
+#-------------------------------------------------------------------------------------------------------------------------------------------------#
+#-------------------------------------------------------------------------------------------------------------------------------------------------#
+
+#SUZ12KO_MTF2KO
+gost.SUZ12KO_MTF2KO_0.05.up.res.sorted <- gost.SUZ12KO_MTF2KO_0.05.up$result[order(gost.SUZ12KO_MTF2KO_0.05.up$result$p_value),]
+gost.SUZ12KO_MTF2KO_0.05.up.res.sorted_gobp <- gost.SUZ12KO_MTF2KO_0.05.up.res.sorted[which(gost.SUZ12KO_MTF2KO_0.05.up.res.sorted$source == "GO:BP"),]
+gost.SUZ12KO_MTF2KO_0.05.up.res.sorted_gobp_bar <- gost.SUZ12KO_MTF2KO_0.05.up.res.sorted_gobp[,c(11,3)]
+gost.SUZ12KO_MTF2KO_0.05.up.res.sorted_gobp_bar_top <- head(gost.SUZ12KO_MTF2KO_0.05.up.res.sorted_gobp_bar,10)
+gost.SUZ12KO_MTF2KO_0.05.up.res.sorted_gobp_bar_top$p_value <- -log10(gost.SUZ12KO_MTF2KO_0.05.up.res.sorted_gobp_bar_top$p_value)
+ggbarplot(gost.SUZ12KO_MTF2KO_0.05.up.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#5d93c4ff", fill = "#5d93c4ff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = "SUZ12KO_MTF2KO_0.05.up", lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+ggsave("gost.SUZ12KO_MTF2KO_0.05.up.res.sorted_gobp_bar_top.svg", width=12, height=8, units="cm", dpi=96)
+
+gost.SUZ12KO_MTF2KO_0.05.down.res.sorted <- gost.SUZ12KO_MTF2KO_0.05.down$result[order(gost.SUZ12KO_MTF2KO_0.05.down$result$p_value),]
+gost.SUZ12KO_MTF2KO_0.05.down.res.sorted_gobp <- gost.SUZ12KO_MTF2KO_0.05.down.res.sorted[which(gost.SUZ12KO_MTF2KO_0.05.down.res.sorted$source == "GO:BP"),]
+gost.SUZ12KO_MTF2KO_0.05.down.res.sorted_gobp_bar <- gost.SUZ12KO_MTF2KO_0.05.down.res.sorted_gobp[,c(11,3)]
+gost.SUZ12KO_MTF2KO_0.05.down.res.sorted_gobp_bar_top <- head(gost.SUZ12KO_MTF2KO_0.05.down.res.sorted_gobp_bar,10)
+gost.SUZ12KO_MTF2KO_0.05.down.res.sorted_gobp_bar_top$p_value <- -log10(gost.SUZ12KO_MTF2KO_0.05.down.res.sorted_gobp_bar_top$p_value)
+ggbarplot(gost.SUZ12KO_MTF2KO_0.05.down.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#e58e8eff", fill = "#e58e8eff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = "SUZ12KO_MTF2KO_0.05.down", lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+ggsave("gost.SUZ12KO_MTF2KO_0.05.down.res.sorted_gobp_bar_top.svg", width=12, height=8, units="cm", dpi=96)
+#-------------------------------------------------------------------------------------------------------------------------------------------------#
+
+```
+
+### Identify common DE genes between different knockouts
+### Only against reporter lines
+```{r Plotting common DE genes between different knockouts}
+
+#Extract unique gene symbol
+r_c1ko_up <- rownames(deseq2_res_C1KO_R7508_0.05.up)
+r_c1ko_down <- rownames(deseq2_res_C1KO_R7508_0.05.down)
+r_h1.4ko_up <- rownames(deseq2_res_H1_4KO_R7508_0.05.up)
+r_h1.4ko_down <- rownames(deseq2_res_H1_4KO_R7508_0.05.down)
+r_mtf2ko_up <- rownames(deseq2_res_MTF2KO_R7508_0.05.up)
+r_mtf2ko_down <- rownames(deseq2_res_MTF2KO_R7508_0.05.down)
+r_suz12ko_up <- rownames(deseq2_res_SUZ12KO_R7508_0.05.up)
+r_suz12ko_down <- rownames(deseq2_res_SUZ12KO_R7508_0.05.down)
+ 
+
+UpsetInputList <- list(
+  r_c1ko_up = r_c1ko_up,
+  r_c1ko_down = r_c1ko_down,
+  r_h1.4ko_up = r_h1.4ko_up,
+  r_h1.4ko_down = r_h1.4ko_down,
+  r_mtf2ko_up = r_mtf2ko_up,
+  r_mtf2ko_down = r_mtf2ko_down,
+  r_suz12ko_up = r_suz12ko_up,
+  r_suz12ko_down = r_suz12ko_down
+  )
+svg("upset_plot_deregulatedgenes.svg", width=9, height=7)
+upset(fromList(UpsetInputList),nsets = 8, order.by = "freq",number.angles = 0, empty.intersections = "on", sets = c("r_c1ko_down", "r_h1.4ko_down", "r_mtf2ko_down", "r_suz12ko_down","r_c1ko_up", "r_h1.4ko_up", "r_mtf2ko_up", "r_suz12ko_up"), keep.order = TRUE)
+dev.off()
+UpsetInputListPlotdata <- upset(fromList(UpsetInputList),nsets = 8, order.by = "freq",number.angles = 0, empty.intersections = "on")
+```
+
+### Let's plot a heatmap for combination of DEGs
+```{r Exracting data from upset plot}
+# create a master list
+master_list_all_degenes <- unique(as.character(unlist(UpsetInputList)))
+master_sublist_all_degenes <- lapply(UpsetInputList, function(x) as.numeric(master_list_all_degenes%in%x))
+
+#Bind the binary matrix
+subDF_all_degenes <- do.call(cbind, master_sublist_all_degenes)
+rownames(subDF_all_degenes) <- master_list_all_degenes
+breaksListd <- seq(0, 1, by = 0.01)
+pheatmap(subDF_all_degenes, color = colorRampPalette(c("white", "white", "firebrick3"))(length(breaksListd)))
+subDF_all_degenes_1 <- data.frame(subDF_all_degenes)
+subDF_all_degenes_1["genes"] <- rownames(subDF_all_degenes_1)
+subDF_all_degenes_1_pos <- merge(subDF_all_degenes_1, gene_gencode_human_GRCh38 ,by.x = "genes", by.y ="ens_gene", all.x =T)
+rownames(subDF_all_degenes_1_pos) <- subDF_all_degenes_1_pos$genes
+subDF_all_degenes_1_pos <- subDF_all_degenes_1_pos[,c(10:16,2:9)]
+summary(subDF_all_degenes_1_pos)
+#Check assigned
+length(subDF_all_degenes_1_pos$chr) == length(na.omit(subDF_all_degenes_1_pos$chr))
+#So all feature were assigned
+```
+
+### Perform intersections of DE genes (to reteive the information as in Upset plot)
+```{r Perform intersections of DE genes}
+library(dplyr)
+#All possible c(r_c1ko_up,r_c1ko_down, r_h1.4ko_up, r_h1.4ko_down, r_mtf2ko_up, r_mtf2ko_down, r_suz12ko_up, r_suz12ko_down)
+uniq_r_c1ko_up <- setdiff(r_c1ko_up, c(r_c1ko_down, r_h1.4ko_up, r_h1.4ko_down, r_mtf2ko_up, r_mtf2ko_down, r_suz12ko_up, r_suz12ko_down))
+uniq_r_c1ko_down <- setdiff(r_c1ko_down, c(r_c1ko_up, r_h1.4ko_up, r_h1.4ko_down, r_mtf2ko_up, r_mtf2ko_down, r_suz12ko_up, r_suz12ko_down))
+uniq_r_h1.4ko_up <- setdiff(r_h1.4ko_up, c(r_c1ko_up, r_c1ko_down, r_h1.4ko_down, r_mtf2ko_up, r_mtf2ko_down, r_suz12ko_up, r_suz12ko_down))
+uniq_r_h1.4ko_down <- setdiff(r_h1.4ko_down, c(r_c1ko_up, r_c1ko_down, r_h1.4ko_up, r_mtf2ko_up, r_mtf2ko_down, r_suz12ko_up, r_suz12ko_down))
+uniq_r_mtf2ko_up <- setdiff(r_mtf2ko_up, c(r_c1ko_up, r_c1ko_down, r_h1.4ko_up, r_h1.4ko_down, r_mtf2ko_down, r_suz12ko_up, r_suz12ko_down))
+uniq_r_mtf2ko_down <- setdiff(r_mtf2ko_down, c(r_c1ko_up, r_c1ko_down, r_h1.4ko_up, r_h1.4ko_down, r_mtf2ko_up, r_suz12ko_up, r_suz12ko_down))
+uniq_r_suz12ko_up <- setdiff(r_suz12ko_up, c(r_c1ko_up, r_c1ko_down, r_h1.4ko_up, r_h1.4ko_down, r_mtf2ko_up, r_mtf2ko_down, r_suz12ko_down))
+uniq_r_suz12ko_down <- setdiff(r_suz12ko_down, c(r_c1ko_up, r_c1ko_down, r_h1.4ko_up, r_h1.4ko_down, r_mtf2ko_up, r_mtf2ko_down, r_suz12ko_up))
+uniq_r_mtf2ko_up_r_suz12ko_up <- setdiff(intersect(r_mtf2ko_up, r_suz12ko_up),c(r_c1ko_up,r_c1ko_down, r_h1.4ko_up, r_h1.4ko_down, r_mtf2ko_down,  r_suz12ko_down))
+uniq_r_c1ko_up_r_h1.4ko_up_r_mtf2ko_up_r_suz12ko_up <- setdiff(intersect(intersect(intersect(r_c1ko_up, r_h1.4ko_up),r_mtf2ko_up),r_suz12ko_up),c(r_c1ko_down, r_h1.4ko_down, r_mtf2ko_down,  r_suz12ko_down))
+uniq_r_c1ko_up_r_h1.4ko_up <- setdiff(intersect(r_c1ko_up, r_h1.4ko_up),c(r_c1ko_down, r_h1.4ko_down, r_mtf2ko_up, r_mtf2ko_down, r_suz12ko_up, r_suz12ko_down))
+uniq_r_c1ko_down_r_h1.4ko_down <- setdiff(intersect(r_c1ko_down, r_h1.4ko_down),c(r_c1ko_up, r_h1.4ko_up, r_mtf2ko_up, r_mtf2ko_down, r_suz12ko_up, r_suz12ko_down))
+uniq_r_c1ko_up_r_h1.4ko_up_r_suz12ko_up <- setdiff(intersect(intersect(r_c1ko_up, r_h1.4ko_up), r_suz12ko_up),c(r_c1ko_down, r_h1.4ko_down,r_mtf2ko_up, r_mtf2ko_down,  r_suz12ko_down))
+uniq_r_c1ko_up_r_mtf2ko_up_r_suz12ko_up <- setdiff(intersect(intersect(r_c1ko_up, r_mtf2ko_up), r_suz12ko_up),c(r_c1ko_down, r_h1.4ko_down,r_h1.4ko_up, r_mtf2ko_down,  r_suz12ko_down))
+```
+
+
+### gProfiler for intersections
+```{r gProfiler for intersections}
+gost.uniq_r_c1ko_up <- gost(query= unlist(lapply(strsplit((uniq_r_c1ko_up), "%"), function(x) x[2])), organism="hsapiens")
+gost.uniq_r_c1ko_up.res.sorted <- gost.uniq_r_c1ko_up$result[order(gost.uniq_r_c1ko_up$result$p_value),]
+gost.uniq_r_c1ko_up.res.sorted["term_name_collapse"] <- paste0(gost.uniq_r_c1ko_up.res.sorted$term_id, "_",gost.uniq_r_c1ko_up.res.sorted$source,"_" ,gsub(" ", ".", gost.uniq_r_c1ko_up.res.sorted$term_name))
+
+# gost.uniq_r_c1ko_down <- gost(query= unlist(lapply(strsplit((uniq_r_c1ko_down), "%"), function(x) x[2])), organism="hsapiens")
+# gost.uniq_r_c1ko_down.res.sorted <- gost.uniq_r_c1ko_down$result[order(gost.uniq_r_c1ko_down$result$p_value),]
+# gost.uniq_r_c1ko_down.res.sorted["term_name_collapse"] <- paste0(gost.uniq_r_c1ko_down.res.sorted$term_id, "_",gost.uniq_r_c1ko_down.res.sorted$source,"_" ,gsub(" ", ".", gost.uniq_r_c1ko_down.res.sorted$term_name))
+
+gost.uniq_r_h1.4ko_up <- gost(query= unlist(lapply(strsplit((uniq_r_h1.4ko_up), "%"), function(x) x[2])), organism="hsapiens")
+gost.uniq_r_h1.4ko_up.res.sorted <- gost.uniq_r_h1.4ko_up$result[order(gost.uniq_r_h1.4ko_up$result$p_value),]
+gost.uniq_r_h1.4ko_up.res.sorted["term_name_collapse"] <- paste0(gost.uniq_r_h1.4ko_up.res.sorted$term_id, "_",gost.uniq_r_h1.4ko_up.res.sorted$source,"_" ,gsub(" ", ".", gost.uniq_r_h1.4ko_up.res.sorted$term_name))
+
+gost.uniq_r_h1.4ko_down <- gost(query= unlist(lapply(strsplit((uniq_r_h1.4ko_down), "%"), function(x) x[2])), organism="hsapiens")
+gost.uniq_r_h1.4ko_down.res.sorted <- gost.uniq_r_h1.4ko_down$result[order(gost.uniq_r_h1.4ko_down$result$p_value),]
+gost.uniq_r_h1.4ko_down.res.sorted["term_name_collapse"] <- paste0(gost.uniq_r_h1.4ko_down.res.sorted$term_id, "_",gost.uniq_r_h1.4ko_down.res.sorted$source,"_" ,gsub(" ", ".", gost.uniq_r_h1.4ko_down.res.sorted$term_name))
+
+gost.uniq_r_mtf2ko_up <- gost(query= unlist(lapply(strsplit((uniq_r_mtf2ko_up), "%"), function(x) x[2])), organism="hsapiens")
+gost.uniq_r_mtf2ko_up.res.sorted <- gost.uniq_r_mtf2ko_up$result[order(gost.uniq_r_mtf2ko_up$result$p_value),]
+gost.uniq_r_mtf2ko_up.res.sorted["term_name_collapse"] <- paste0(gost.uniq_r_mtf2ko_up.res.sorted$term_id, "_",gost.uniq_r_mtf2ko_up.res.sorted$source,"_" ,gsub(" ", ".", gost.uniq_r_mtf2ko_up.res.sorted$term_name))
+
+gost.uniq_r_mtf2ko_down <- gost(query= unlist(lapply(strsplit((uniq_r_mtf2ko_down), "%"), function(x) x[2])), organism="hsapiens")
+gost.uniq_r_mtf2ko_down.res.sorted <- gost.uniq_r_mtf2ko_down$result[order(gost.uniq_r_mtf2ko_down$result$p_value),]
+gost.uniq_r_mtf2ko_down.res.sorted["term_name_collapse"] <- paste0(gost.uniq_r_mtf2ko_down.res.sorted$term_id, "_",gost.uniq_r_mtf2ko_down.res.sorted$source,"_" ,gsub(" ", ".", gost.uniq_r_mtf2ko_down.res.sorted$term_name))
+
+gost.uniq_r_suz12ko_up <- gost(query= unlist(lapply(strsplit((uniq_r_suz12ko_up), "%"), function(x) x[2])), organism="hsapiens")
+gost.uniq_r_suz12ko_up.res.sorted <- gost.uniq_r_suz12ko_up$result[order(gost.uniq_r_suz12ko_up$result$p_value),]
+gost.uniq_r_suz12ko_up.res.sorted["term_name_collapse"] <- paste0(gost.uniq_r_suz12ko_up.res.sorted$term_id, "_",gost.uniq_r_suz12ko_up.res.sorted$source,"_" ,gsub(" ", ".", gost.uniq_r_suz12ko_up.res.sorted$term_name))
+
+gost.uniq_r_suz12ko_down <- gost(query= unlist(lapply(strsplit((uniq_r_suz12ko_down), "%"), function(x) x[2])), organism="hsapiens")
+gost.uniq_r_suz12ko_down.res.sorted <- gost.uniq_r_suz12ko_down$result[order(gost.uniq_r_suz12ko_down$result$p_value),]
+gost.uniq_r_suz12ko_down.res.sorted["term_name_collapse"] <- paste0(gost.uniq_r_suz12ko_down.res.sorted$term_id, "_",gost.uniq_r_suz12ko_down.res.sorted$source,"_" ,gsub(" ", ".", gost.uniq_r_suz12ko_down.res.sorted$term_name))
+
+gost.uniq_r_mtf2ko_up_r_suz12ko_up <- gost(query= unlist(lapply(strsplit((uniq_r_mtf2ko_up_r_suz12ko_up), "%"), function(x) x[2])), organism="hsapiens")
+gost.uniq_r_mtf2ko_up_r_suz12ko_up.res.sorted <- gost.uniq_r_mtf2ko_up_r_suz12ko_up$result[order(gost.uniq_r_mtf2ko_up_r_suz12ko_up$result$p_value),]
+gost.uniq_r_mtf2ko_up_r_suz12ko_up.res.sorted["term_name_collapse"] <- paste0(gost.uniq_r_mtf2ko_up_r_suz12ko_up.res.sorted$term_id, "_",gost.uniq_r_mtf2ko_up_r_suz12ko_up.res.sorted$source,"_" ,gsub(" ", ".", gost.uniq_r_mtf2ko_up_r_suz12ko_up.res.sorted$term_name))
+
+gost.uniq_r_c1ko_up_r_h1.4ko_up_r_mtf2ko_up_r_suz12ko_up <- gost(query= unlist(lapply(strsplit((uniq_r_c1ko_up_r_h1.4ko_up_r_mtf2ko_up_r_suz12ko_up), "%"), function(x) x[2])), organism="hsapiens")
+gost.uniq_r_c1ko_up_r_h1.4ko_up_r_mtf2ko_up_r_suz12ko_up.res.sorted <- gost.uniq_r_c1ko_up_r_h1.4ko_up_r_mtf2ko_up_r_suz12ko_up$result[order(gost.uniq_r_c1ko_up_r_h1.4ko_up_r_mtf2ko_up_r_suz12ko_up$result$p_value),]
+gost.uniq_r_c1ko_up_r_h1.4ko_up_r_mtf2ko_up_r_suz12ko_up.res.sorted["term_name_collapse"] <- paste0(gost.uniq_r_c1ko_up_r_h1.4ko_up_r_mtf2ko_up_r_suz12ko_up.res.sorted$term_id, "_",gost.uniq_r_c1ko_up_r_h1.4ko_up_r_mtf2ko_up_r_suz12ko_up.res.sorted$source,"_" ,gsub(" ", ".", gost.uniq_r_c1ko_up_r_h1.4ko_up_r_mtf2ko_up_r_suz12ko_up.res.sorted$term_name))
+
+gost.uniq_r_c1ko_up_r_h1.4ko_up <- gost(query= unlist(lapply(strsplit((uniq_r_c1ko_up_r_h1.4ko_up), "%"), function(x) x[2])), organism="hsapiens")
+gost.uniq_r_c1ko_up_r_h1.4ko_up.res.sorted <- gost.uniq_r_c1ko_up_r_h1.4ko_up$result[order(gost.uniq_r_c1ko_up_r_h1.4ko_up$result$p_value),]
+gost.uniq_r_c1ko_up_r_h1.4ko_up.res.sorted["term_name_collapse"] <- paste0(gost.uniq_r_c1ko_up_r_h1.4ko_up.res.sorted$term_id, "_",gost.uniq_r_c1ko_up_r_h1.4ko_up.res.sorted$source,"_" ,gsub(" ", ".", gost.uniq_r_c1ko_up_r_h1.4ko_up.res.sorted$term_name))
+
+gost.uniq_r_c1ko_down_r_h1.4ko_down <- gost(query= unlist(lapply(strsplit((uniq_r_c1ko_down_r_h1.4ko_down), "%"), function(x) x[2])), organism="hsapiens")
+gost.uniq_r_c1ko_down_r_h1.4ko_down.res.sorted <- gost.uniq_r_c1ko_down_r_h1.4ko_down$result[order(gost.uniq_r_c1ko_down_r_h1.4ko_down$result$p_value),]
+gost.uniq_r_c1ko_down_r_h1.4ko_down.res.sorted["term_name_collapse"] <- paste0(gost.uniq_r_c1ko_down_r_h1.4ko_down.res.sorted$term_id, "_",gost.uniq_r_c1ko_down_r_h1.4ko_down.res.sorted$source,"_" ,gsub(" ", ".", gost.uniq_r_c1ko_down_r_h1.4ko_down.res.sorted$term_name))
+
+gost.uniq_r_c1ko_up_r_h1.4ko_up_r_suz12ko_up <- gost(query= unlist(lapply(strsplit((uniq_r_c1ko_up_r_h1.4ko_up_r_suz12ko_up), "%"), function(x) x[2])), organism="hsapiens")
+gost.uniq_r_c1ko_up_r_h1.4ko_up_r_suz12ko_up.res.sorted <- gost.uniq_r_c1ko_up_r_h1.4ko_up_r_suz12ko_up$result[order(gost.uniq_r_c1ko_up_r_h1.4ko_up_r_suz12ko_up$result$p_value),]
+gost.uniq_r_c1ko_up_r_h1.4ko_up_r_suz12ko_up.res.sorted["term_name_collapse"] <- paste0(gost.uniq_r_c1ko_up_r_h1.4ko_up_r_suz12ko_up.res.sorted$term_id, "_",gost.uniq_r_c1ko_up_r_h1.4ko_up_r_suz12ko_up.res.sorted$source,"_" ,gsub(" ", ".", gost.uniq_r_c1ko_up_r_h1.4ko_up_r_suz12ko_up.res.sorted$term_name))
+
+gost.uniq_r_c1ko_up_r_mtf2ko_up_r_suz12ko_up <- gost(query= unlist(lapply(strsplit((uniq_r_c1ko_up_r_mtf2ko_up_r_suz12ko_up), "%"), function(x) x[2])), organism="hsapiens")
+gost.uniq_r_c1ko_up_r_mtf2ko_up_r_suz12ko_up.res.sorted <- gost.uniq_r_c1ko_up_r_mtf2ko_up_r_suz12ko_up$result[order(gost.uniq_r_c1ko_up_r_mtf2ko_up_r_suz12ko_up$result$p_value),]
+gost.uniq_r_c1ko_up_r_mtf2ko_up_r_suz12ko_up.res.sorted["term_name_collapse"] <- paste0(gost.uniq_r_c1ko_up_r_mtf2ko_up_r_suz12ko_up.res.sorted$term_id, "_",gost.uniq_r_c1ko_up_r_mtf2ko_up_r_suz12ko_up.res.sorted$source,"_" ,gsub(" ", ".", gost.uniq_r_c1ko_up_r_mtf2ko_up_r_suz12ko_up.res.sorted$term_name))
+```
+
+### Make matrix of up and down regulated GO terms
+```{r Make matrix of up and down regulated GO terms}
+List_gost_res.sorted_allud <- list("C1KO_R7508_0.05.up"= gost.C1KO_R7508_0.05.up.res.sorted,
+                                   "C1KO_R7508_0.05.down"= gost.C1KO_R7508_0.05.down.res.sorted, 
+                                   "H1_4KO_R7508_0.05.up" = gost.H1_4KO_R7508_0.05.up.res.sorted, 
+                                   "H1_4KO_R7508_0.05.down"= gost.H1_4KO_R7508_0.05.down.res.sorted, 
+                                   "MTF2KO_R7508_0.05.up"= gost.MTF2KO_R7508_0.05.up.res.sorted, 
+                                   "MTF2KO_R7508_0.05.down"= gost.MTF2KO_R7508_0.05.down.res.sorted, 
+                                   "SUZ12KO_R7508_0.05.up"= gost.SUZ12KO_R7508_0.05.up.res.sorted, 
+                                   "SUZ12KO_R7508_0.05.down" = gost.SUZ12KO_R7508_0.05.down.res.sorted,
+                                   "uniq_r_c1ko_up"= gost.uniq_r_c1ko_up.res.sorted,
+                                   "uniq_r_h1.4ko_up"= gost.uniq_r_h1.4ko_up.res.sorted,
+                                   "uniq_r_h1.4ko_down"= gost.uniq_r_h1.4ko_down.res.sorted,
+                                   "uniq_r_mtf2ko_up"= gost.uniq_r_mtf2ko_up.res.sorted,
+                                   "uniq_r_mtf2ko_down"= gost.uniq_r_mtf2ko_down.res.sorted,
+                                   "uniq_r_suz12ko_up"= gost.uniq_r_suz12ko_up.res.sorted,
+                                   "uniq_r_suz12ko_down"= gost.uniq_r_suz12ko_down.res.sorted,
+                                   "uniq_r_mtf2ko_up_r_suz12ko_up"= gost.uniq_r_mtf2ko_up_r_suz12ko_up.res.sorted,
+                                   "uniq_r_c1ko_up_r_h1.4ko_up_r_mtf2ko_up_r_suz12ko_up"= gost.uniq_r_c1ko_up_r_h1.4ko_up_r_mtf2ko_up_r_suz12ko_up.res.sorted,
+                                   "uniq_r_c1ko_up_r_h1.4ko_up"= gost.uniq_r_c1ko_up_r_h1.4ko_up.res.sorted,
+                                   "uniq_r_c1ko_down_r_h1.4ko_down"= gost.uniq_r_c1ko_down_r_h1.4ko_down.res.sorted,
+                                   "uniq_r_c1ko_up_r_h1.4ko_up_r_suz12ko_up"= gost.uniq_r_c1ko_up_r_h1.4ko_up_r_suz12ko_up.res.sorted,
+                                   "uniq_r_c1ko_up_r_mtf2ko_up_r_suz12ko_up"=gost.uniq_r_c1ko_up_r_mtf2ko_up_r_suz12ko_up.res.sorted)
+
+for (kx in names(List_gost_res.sorted_allud)){
+  print(kx)
+  assign("gost_temprary_for_all_combos", get(paste0("gost.",kx,".res.sorted")))
+  write.table(gost_temprary_for_all_combos[,c(9,11,3,15)], paste0("gost.",kx,".res.sorted.txt"), sep = "\t", quote = F, append = F, row.names = F, col.names = F)
+} 
+#Make the master list(unlist will mix the content of all objects and unique will keep the unique ones)
+master_gost_res.sorted_allud <- unique(unlist(lapply(List_gost_res.sorted_allud, function(x) x$term_name_collapse)))
+
+#Make the binary list #lapply(X, FUN, …)
+subList_gost_res.sorted_allud <- lapply(List_gost_res.sorted_allud, function(x) as.numeric(master_gost_res.sorted_allud%in%x$term_name_collapse))
+
+#Bind the binary matrix
+subDF_gost_res.sorted_allud <- do.call(cbind, subList_gost_res.sorted_allud)
+rownames(subDF_gost_res.sorted_allud) <- master_gost_res.sorted_allud
+#colSums(subDF_gost_res.sorted_allud)
+#head(subDF_gost_res.sorted_allud)
+#manually also grepped to check the row assignment is right eg. grep "GO:0032502_GO:BP_developmental.process" -w gost*txt
+```
+
+### Make a table from list of multiple dataframes based on values in specific columns
+```{r Making a table for GO:BP terms...... (it needs a p-value filtering becuase I am talking only highly significant)}
+#--------------------#
+List_gost_res.sorted_allud_GOBP <- lapply(List_gost_res.sorted_allud, function(x) filter(x, source == "GO:BP" & p_value <= 1e-10))
+
+#Make the master list(unlist will mix the content of all objects and unique will keep the unique ones)
+List_gost_res.sorted_allud_GOBP_master <- unique(unlist(lapply(List_gost_res.sorted_allud_GOBP, function(x) x$term_name_collapse)))
+
+#Make the binary  list #lapply(X, FUN, …)
+List_gost_res.sorted_allud_GOBP_num <- lapply(List_gost_res.sorted_allud_GOBP, function(x) as.numeric(List_gost_res.sorted_allud_GOBP_master%in%x$term_name_collapse))
+
+#Bind the binary matrix
+List_gost_res.sorted_allud_GOBP_num <- do.call(cbind, List_gost_res.sorted_allud_GOBP_num)
+rownames(List_gost_res.sorted_allud_GOBP_num) <- List_gost_res.sorted_allud_GOBP_master
+List_gost_res.sorted_allud_GOBP_numdf <- data.frame(List_gost_res.sorted_allud_GOBP_num)
+#colSums(List_gost_res.sorted_allud_GOBP_num)
+#Checked: dim(subDF_gost_res.sorted_allud[rownames(subDF_gost_res.sorted_allud) %like% "GO:BP", ] ) and lapply(List_gost_res.sorted_allud, function(x) filter(x, source == "GO:BP")) will give you the same dim
+```
+
+### Get GO terms from GO BP terms
+```{r Getting GO terms for GO:BP.....}
+goterms_List_gost_res.sorted_allud_GOBP_numtemp <- c(rownames(List_gost_res.sorted_allud_GOBP_num))
+goterms_List_gost_res.sorted_allud_GOBP_num <- unique(unlist(lapply(strsplit(goterms_List_gost_res.sorted_allud_GOBP_numtemp, "_"), function(x) x[1])))
+write.table(data.frame(goterms_List_gost_res.sorted_allud_GOBP_num), "goterms_List_gost_res.sorted_allud_GOBP_num.txt", quote = F,append = F, row.names = F, col.names = F)
+#Overlap GO:Terms with GO:Slim
+# ensembl_goterms <- read.delim("/mnt/home3/reid/av638/rnaseq/iva_lab_gencode/ensembl_goterms_comb.txt", header = T, stringsAsFactors = F)
+# colnames(ensembl_goterms) <- "V1"
+# ensembl_goterms_sep <- cSplit(ensembl_goterms, "V1","%")
+# ensembl_goterms_sep <- data.frame(ensembl_goterms_sep)
+# colnames(ensembl_goterms_sep) <- c("GOTerm", "go_term_desc", "goslim_term", "goslim_id")
+# #Add GO:slim terms to binary matrix containing GOterms
+# List_gost_res_sorted_allud_GOBP_num2 <- data.frame(List_gost_res.sorted_allud_GOBP_num)
+# List_gost_res_sorted_allud_GOBP_num2["col"] <- rownames(List_gost_res_sorted_allud_GOBP_num2)
+# List_gost_res_sorted_allud_GOBP_num3 <- separate(List_gost_res_sorted_allud_GOBP_num2, col = col, into = c("GOTerm", "GOBP", "BioP"), sep = "_")
+# List_gost_res_sorted_allud_GOBP_ensembl <- merge(List_gost_res_sorted_allud_GOBP_num3, ensembl_goterms_sep, by="GOTerm", all.x =T)
+
+#We wanted to to get broad classification fo GO:Terms and the r version to get GoSlim IDs is not so useful.
+#So I uploaded my goterms data in cateGOrizer web version https://www.animalgenome.org/tools/catego/ ----> upload files --> right click save full output page ---> Rename name the file manually as GO_Terms_Classification_Count_Results.html
+#grep "javascript:ReverseDisplay" GO_Terms_Classification_Count_Results.html -B 1 > categoriser_temp1_output.txt 
+#python rearranger_for_categrizor_output.py > categoriser_temp2_output.txt
+#Manually clean the <td> and all html content and save as categoriser_temp3_output.txt
+#replace space by "." and remove unwanted elements biological function line, among columns use separator tab, In the end 6 columns will be left
+#Out of 170 GO:BP Terms used 167 were detected by Categorizer and 100 were assigned to specific biological process apart from biological function (which comprise highest) so it was removed as it was very general term
+categoriser_output <- read.table("/mnt/home3/reid/av638/rnaseq/iva_lab_gencode/outfolder/categoriser_temp3_output.txt", header=F, sep="\t")
+categoriser_output_re <- categoriser_output[,c(1,2,5)]
+#Adding bp with all GO Term
+categoriser_output_re["col"] <- sapply(1:nrow(categoriser_output_re), function(x) paste0(categoriser_output_re$V1[x],"_",categoriser_output_re$V2[x],"_" ,unlist(strsplit(categoriser_output_re$V5[x], split = ".",  fixed = TRUE)), collapse = ' '))
+#At this point "." is present between GO:BP terms and each GO:BP terms linked with GO:Slim ID with "_", so when I unlist all content will become characters
+categoriser_output_re1 <- data.frame(col = unlist(strsplit(categoriser_output_re$col, " ")))
+categoriser_output_re2 <- separate(data = categoriser_output_re1, col = col, into = c("FunSlim","GoSlim", "GOTerm"), sep = "_")
+
+#Add GO:slim terms to binary matrix containing GOterms
+List_gost_res_sorted_allud_GOBP_num2 <- data.frame(List_gost_res.sorted_allud_GOBP_num)
+List_gost_res_sorted_allud_GOBP_num2["col"] <- rownames(List_gost_res_sorted_allud_GOBP_num2)
+List_gost_res_sorted_allud_GOBP_num3 <- separate(List_gost_res_sorted_allud_GOBP_num2, col = col, into = c("GOTerm", "GOBP", "BioP"), sep = "_")
+List_gost_res_sorted_allud_GOBP_num4 <- merge(List_gost_res_sorted_allud_GOBP_num3, categoriser_output_re2, by="GOTerm", all.y =T)
+rownames(List_gost_res_sorted_allud_GOBP_num4) <- paste0(gsub(",","",List_gost_res_sorted_allud_GOBP_num4$FunSlim), 
+                                                         "_", 
+                                                         List_gost_res_sorted_allud_GOBP_num4$GOTerm,
+                                                         "_",
+                                                        List_gost_res_sorted_allud_GOBP_num4$GoSlim)
+List_gost_res_sorted_allud_GOBP_num4 <- List_gost_res_sorted_allud_GOBP_num4[,-c(1,23:25)]
+#List_gost_res_sorted_allud_GOBP_num4 <- List_gost_res_sorted_allud_GOBP_num4[,-c(7)]
+#List_gost_res_sorted_allud_GOBP_num4 <- List_gost_res_sorted_allud_GOBP_num4[rowSums(List_gost_res_sorted_allud_GOBP_num4[,c(1:20)])>0,]
+#List_gost_res_sorted_allud_GOBP_num4 <- List_gost_res_sorted_allud_GOBP_num4[which(rowSums(List_gost_res_sorted_allud_GOBP_num4[,1:20]) > 0),]
+
+#head(List_gost_res.sorted_allud_GOBP_num)
+#Prepare annotation file using GO:Slim terms
+funcslimterms_List_allud_GOBP_num <- as.character()
+for (i in str_split(rownames(List_gost_res_sorted_allud_GOBP_num4),"_")){
+  temp <- i[[1]]
+  funcslimterms_List_allud_GOBP_num <- c(funcslimterms_List_allud_GOBP_num, temp)
+}
+row_annotations <- data.frame(Annotations= funcslimterms_List_allud_GOBP_num)
+rownames(row_annotations) <- rownames(List_gost_res_sorted_allud_GOBP_num4)
+#Prepare annotation color file using row_annotations
+row_color_ano <- paste0(data.frame(unique(row_annotations$Annotations))$unique.row_annotations.Annotations.,"'='", c("orange","#ffff00","#000000","#a4c2f4","#b45f06","#ff00ff","#ecb4ec","#9C9C9C","#d0ecb4","#2fb41d","#77ddaa","#ff0000","blue","pink","#ccb79c","#63d863"), collapse = ",")
+
+row_color_ano <- gsub(",",",\"",row_color_ano)
+row_color_ano <- gsub("'","\"",row_color_ano)
+row_color_ano <- gsub(",","\",",row_color_ano)
+#copy paste in sublime and remove \ manually
+row_color <- list(Annotations=c("cell.cycle"="orange","cell.organization.and.biogenesis"="#ffff00","morphogenesis"="#000000","cell.differentiation"="#a4c2f4","development"="#b45f06","protein.modification"="#ff00ff","protein.metabolism"="#ecb4ec","metabolism"="#9C9C9C","cell.communication"="#d0ecb4","signal.transduction"="#2fb41d","cell-cell.signaling"="#77ddaa","response.to.external.stimulus"="#ff0000","cell.proliferation"="blue","response.to.endogenous.stimulus"="pink","embryonic.development"="#ccb79c","transport"="#63d863"))
+breaksListd <- seq(0, 1, by = 0.01)
+pheatmap_List_gost_res_sorted_allud_GOBP_num4 <- pheatmap(List_gost_res_sorted_allud_GOBP_num4[,1:21],color = colorRampPalette(c("white", "white", "firebrick3"))(length(breaksListd)), breaks = breaksListd,fontsize = 7,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = F, show_colnames = T,  main= "GOBP", annotation_colors = row_color, annotation_row = row_annotations)
+
+save_pheatmap_png <- function(x, filename, width=1804, height=9000, res = 150) {
+  png(filename, width = width, height = height, res = res)
+  grid::grid.newpage()
+  grid::grid.draw(x$gtable)
+  dev.off()
+}
+ 
+save_pheatmap_png(pheatmap_List_gost_res_sorted_allud_GOBP_num4, "pheatmap_List_gost_res_sorted_allud_GOBP_num4.png")
+
+#Remove SUZ12KO 
+List_gost_res_sorted_allud_GOBP_num5 <- List_gost_res_sorted_allud_GOBP_num4[,c(1:6,8:21)]
+List_gost_res_sorted_allud_GOBP_num5["rowmeans"] <- rowMeans(List_gost_res_sorted_allud_GOBP_num5)
+List_gost_res_sorted_allud_GOBP_num5 <- List_gost_res_sorted_allud_GOBP_num5[which(!List_gost_res_sorted_allud_GOBP_num5$rowmeans == 0),]
+pheatmap_List_gost_res_sorted_allud_GOBP_num5 <- pheatmap(List_gost_res_sorted_allud_GOBP_num5[,c(1:20)],color = colorRampPalette(c("white", "white", "firebrick3"))(length(breaksListd)), breaks = breaksListd,fontsize = 10,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = F, show_colnames = T,  main= "GOBP", annotation_colors = row_color, annotation_row = row_annotations)
+
+save_pheatmap_png <- function(x, filename, width=1804, height=5000, res = 150) {
+  png(filename, width = width, height = height, res = res)
+  grid::grid.newpage()
+  grid::grid.draw(x$gtable)
+  dev.off()
+}
+ 
+save_pheatmap_png(pheatmap_List_gost_res_sorted_allud_GOBP_num5, "pheatmap_List_gost_res_sorted_allud_GOBP_num5.png")
+
+#Make  a unique row
+#List_gost_res_sorted_allud_GOBP_num4
+categoriser_goslim_goslimterm <- read.table("categoriser_goslim_goslimterm.txt", header = F, stringsAsFactors = F)
+colnames(categoriser_goslim_goslimterm)  <- c("GoSlimName","GoSlim")
+List_gost_res_sorted_allud_GOBP_num_goslim <- merge(List_gost_res_sorted_allud_GOBP_num4, categoriser_goslim_goslimterm,by="GoSlim", all.x=TRUE)
+List_gost_res_sorted_allud_GOBP_num_goslim_cols <- do.call(paste, c(List_gost_res_sorted_allud_GOBP_num_goslim[colnames(List_gost_res_sorted_allud_GOBP_num_goslim)], sep = "_")) 
+List_gost_res_sorted_allud_GOBP_num_goslim_cols <- data.frame(cols=unique(List_gost_res_sorted_allud_GOBP_num_goslim_cols))
+List_gost_res_sorted_allud_GOBP_num_goslim_colsdf <- data.frame(cSplit(List_gost_res_sorted_allud_GOBP_num_goslim_cols, "cols", "_"))
+
+rownames(List_gost_res_sorted_allud_GOBP_num_goslim_colsdf) <- paste0(List_gost_res_sorted_allud_GOBP_num_goslim_colsdf$cols_01,"_", seq(1:length(List_gost_res_sorted_allud_GOBP_num_goslim_colsdf$cols_01)))
+
+List_gost_res_sorted_allud_GOBP_num_goslim_colsdf <- List_gost_res_sorted_allud_GOBP_num_goslim_colsdf[,-1]
+colnames(List_gost_res_sorted_allud_GOBP_num_goslim_colsdf) <- colnames(List_gost_res_sorted_allud_GOBP_num_goslim[,c(2:23)])
+
+#dplyr way of doing the same thing
+# List_gost_res_sorted_allud_GOBP_num_goslim_distinct <- List_gost_res_sorted_allud_GOBP_num_goslim %>% distinct()
+# rownames(List_gost_res_sorted_allud_GOBP_num_goslim_distinct) <- paste0(List_gost_res_sorted_allud_GOBP_num_goslim_distinct$GoSlim,"_", seq(1:length(List_gost_res_sorted_allud_GOBP_num_goslim_distinct)))
+# List_gost_res_sorted_allud_GOBP_num_goslim_distinct <- List_gost_res_sorted_allud_GOBP_num_goslim_distinct[,-1]
+
+row_annotations_uniq <- data.frame(Annotations= List_gost_res_sorted_allud_GOBP_num_goslim_colsdf$GoSlimName)
+rownames(row_annotations_uniq) <- rownames(List_gost_res_sorted_allud_GOBP_num_goslim_colsdf)
+
+pheatmap_List_gost_res_sorted_allud_GOBP_num_goslim_colsdf <- pheatmap(List_gost_res_sorted_allud_GOBP_num_goslim_colsdf[,1:21],color = colorRampPalette(c("white", "white", "firebrick3"))(length(breaksListd)), breaks = breaksListd,fontsize = 7,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "grey",show_rownames = F, show_colnames = T,  main= "GOBP", annotation_colors = row_color, annotation_row = row_annotations_uniq)
+
+save_pheatmap_png <- function(x, filename, width=1800, height=1800, res = 150) {
+  png(filename, width = width, height = height, res = res)
+  grid::grid.newpage()
+  grid::grid.draw(x$gtable)
+  dev.off()
+}
+ 
+save_pheatmap_png(pheatmap_List_gost_res_sorted_allud_GOBP_num_goslim_colsdf, "pheatmap_List_gost_res_sorted_allud_GOBP_num_goslim_colsdf.png")
+```
+
+### Sort heatmap according to Upset plot content 
+```{r Sort heatmap according to Upset plot content.....}
+#Sort heatmap according to Upset plot content
+upset_plot_content_length <- list()
+for (z in c("uniq_r_c1ko_up","uniq_r_c1ko_down","uniq_r_h1.4ko_up","uniq_r_h1.4ko_down","uniq_r_mtf2ko_up","uniq_r_mtf2ko_down","uniq_r_suz12ko_up","uniq_r_suz12ko_down","uniq_r_mtf2ko_up_r_suz12ko_up","uniq_r_c1ko_up_r_h1.4ko_up_r_mtf2ko_up_r_suz12ko_up","uniq_r_c1ko_up_r_h1.4ko_up","uniq_r_c1ko_down_r_h1.4ko_down","uniq_r_c1ko_up_r_h1.4ko_up_r_suz12ko_up","uniq_r_c1ko_up_r_mtf2ko_up_r_suz12ko_up")){
+  print(length(get(z)))
+  upset_plot_content_length[[z]] <-  cbind.data.frame(z, length(get(z)))
+}
+upset_plot_content_length_re <- do.call(rbind.data.frame,upset_plot_content_length)
+colnames(upset_plot_content_length_re) <- c("combos","int")
+upset_plot_content_length_re <- upset_plot_content_length_re[order(-upset_plot_content_length_re$int),]
+List_gost_res_sorted_allud_GOBP_num_goslim_colsdfre <- List_gost_res_sorted_allud_GOBP_num_goslim_colsdf
+
+#'uniq_r_c1ko_down' is missing so I need to add with 0 counts
+List_gost_res_sorted_allud_GOBP_num_goslim_colsdfre['uniq_r_c1ko_down'] <- 0 
+
+List_gost_res_sorted_allud_GOBP_num_goslim_colsdfre_upset <- List_gost_res_sorted_allud_GOBP_num_goslim_colsdfre %>%
+  select(upset_plot_content_length_re$combos,colnames(List_gost_res_sorted_allud_GOBP_num_goslim_colsdfre[,c(1:8,22)]))
+
+List_gost_res_sorted_allud_GOBP_num_goslim_colsdfre_upset_0less <- List_gost_res_sorted_allud_GOBP_num_goslim_colsdfre_upset[,1:9]
+List_gost_res_sorted_allud_GOBP_num_goslim_colsdfre_upset_0less["sum"] <- rowSums(List_gost_res_sorted_allud_GOBP_num_goslim_colsdfre_upset_0less)
+List_gost_res_sorted_allud_GOBP_num_goslim_colsdfre_upset_0less <- List_gost_res_sorted_allud_GOBP_num_goslim_colsdfre_upset_0less[which(List_gost_res_sorted_allud_GOBP_num_goslim_colsdfre_upset_0less$sum > 0),]
+List_gost_res_sorted_allud_GOBP_num_goslim_colsdfre_upset_0less <- List_gost_res_sorted_allud_GOBP_num_goslim_colsdfre_upset_0less[,-10]
+#1:22 becuase one more column was added uniq_r_c1ko_down'
+pheatmap_List_gost_res_sorted_allud_GOBP_num_goslim_colsdfre_upset_0less <- pheatmap(List_gost_res_sorted_allud_GOBP_num_goslim_colsdfre_upset_0less,color = colorRampPalette(c("white", "white", "firebrick3"))(length(breaksListd)), breaks = breaksListd,fontsize = 7,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = F,clustering_method = "ward.D", border_color = "grey",show_rownames = F, show_colnames = T,  main= "GOBP", annotation_colors = row_color, annotation_row = row_annotations_uniq,cellwidth = 10, cellheight = 10)
+
+save_pheatmap_png <- function(x, filename, width=689, height=604, res = 150) {
+  png(filename, width = width, height = height, res = res)
+  grid::grid.newpage()
+  grid::grid.draw(x$gtable)
+  dev.off()
+}
+ 
+save_pheatmap_png(pheatmap_List_gost_res_sorted_allud_GOBP_num_goslim_colsdfre_upset_0less, "pheatmap_List_gost_res_sorted_allud_GOBP_num_goslim_colsdfre_upset_0less.png")
+#pheatmap_List_gost_res_sorted_allud_GOBP_num_goslim_colsdfre_upset_0less.svg
+```
+
+### Make a table from list of multiple dataframes based on values in specific columns
+```{r Making a table for REAC terms......}
+#--------------------#
+List_gost_res.sorted_allud_REAC <- lapply(List_gost_res.sorted_allud, function(x) filter(x, source == "REAC"))
+
+#Make the master list(unlist will mix the content of all objects and unique will keep the unique ones)
+List_gost_res.sorted_allud_REAC_master <- unique(unlist(lapply(List_gost_res.sorted_allud_REAC, function(x) x$term_name_collapse)))
+
+#Make the binary  list #lapply(X, FUN, …)
+List_gost_res.sorted_allud_REAC_num <- lapply(List_gost_res.sorted_allud_REAC, function(x) as.numeric(List_gost_res.sorted_allud_REAC_master%in%x$term_name_collapse))
+
+#Bind the binary matrix
+List_gost_res.sorted_allud_REAC_num <- do.call(cbind, List_gost_res.sorted_allud_REAC_num)
+rownames(List_gost_res.sorted_allud_REAC_num) <- List_gost_res.sorted_allud_REAC_master
+#colSums(List_gost_res.sorted_allud_REAC_num)
+#head(List_gost_res.sorted_allud_REAC_num)
+breaksListd <- seq(0, 1, by = 0.01)
+pheatmap_List_gost_res.sorted_allud_REAC_num <- pheatmap(List_gost_res.sorted_allud_REAC_num,color = colorRampPalette(c("white", "white", "firebrick3"))(length(breaksListd)), breaks = breaksListd,fontsize = 10,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T, main= "REAC")
+
+save_pheatmap_png <- function(x, filename, width=2804, height=4000, res = 150) {
+  png(filename, width = width, height = height, res = res)
+  grid::grid.newpage()
+  grid::grid.draw(x$gtable)
+  dev.off()
+}
+ 
+save_pheatmap_png(pheatmap_List_gost_res.sorted_allud_REAC_num, "pheatmap_List_gost_res.sorted_allud_REAC_num.png")
+```
+
+
+
+### Make a table from list of multiple dataframes based on values in specific columns
+```{r Making a table for KEGG terms......}
+#--------------------#
+List_gost_res.sorted_allud_KEGG <- lapply(List_gost_res.sorted_allud, function(x) filter(x, source == "KEGG"))
+
+#Make the master list(unlist will mix the content of all objects and unique will keep the unique ones)
+List_gost_res.sorted_allud_KEGG_master <- unique(unlist(lapply(List_gost_res.sorted_allud_KEGG, function(x) x$term_name_collapse)))
+
+#Make the binary  list #lapply(X, FUN, …)
+List_gost_res.sorted_allud_KEGG_num <- lapply(List_gost_res.sorted_allud_KEGG, function(x) as.numeric(List_gost_res.sorted_allud_KEGG_master%in%x$term_name_collapse))
+
+#Bind the binary matrix
+List_gost_res.sorted_allud_KEGG_num <- do.call(cbind, List_gost_res.sorted_allud_KEGG_num)
+rownames(List_gost_res.sorted_allud_KEGG_num) <- List_gost_res.sorted_allud_KEGG_master
+#colSums(List_gost_res.sorted_allud_KEGG_num)
+#head(List_gost_res.sorted_allud_KEGG_num)
+breaksListd <- seq(0, 1, by = 0.01)
+pheatmap_List_gost_res.sorted_allud_KEGG_num <- pheatmap(List_gost_res.sorted_allud_KEGG_num,color = colorRampPalette(c("white", "white", "firebrick3"))(length(breaksListd)), breaks = breaksListd,fontsize = 10,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T, main= "KEGG")
+
+save_pheatmap_png <- function(x, filename, width=1804, height=2000, res = 150) {
+  png(filename, width = width, height = height, res = res)
+  grid::grid.newpage()
+  grid::grid.draw(x$gtable)
+  dev.off()
+}
+ 
+save_pheatmap_png(pheatmap_List_gost_res.sorted_allud_KEGG_num, "pheatmap_List_gost_res.sorted_allud_KEGG_num.png")
+
+```
+
+### vst transformation
+```{r Performing vst transformation ....}
+vsdOcounts <- data.frame(assay(vsdO))
+vsdOcounts["genes"] <- rownames(vsdOcounts)
+```
+
+### Calculate z-scores
+```{r Calculating z-scores ....}
+
+#Transform and scale
+z_TddsONormcounts= scale(t(ddsONormcounts), center = TRUE, scale = TRUE)
+z_ddsONormcounts <- data.frame(t(z_TddsONormcounts))
+write.table(z_ddsONormcounts, "z_ddsNormcounts.txt", sep="\t", quote=F, col.names=NA)
+head(z_ddsONormcounts)
+z_ddsONormcounts["genes"] <- rownames(z_ddsONormcounts)
+
+ddsONormcounts_1 <- data.frame(ddsONormcounts)
+ddsONormcounts_1["genes"] <- rownames(ddsONormcounts_1)
+
+ddsONormcounts_deg <- merge(subDF_all_degenes_1, ddsONormcounts_1, by.x="genes", by.y = "genes",all.x=T)
+rownames(ddsONormcounts_deg) <- ddsONormcounts_deg$genes
+ddsONormcounts_deg <- ddsONormcounts_deg[,-c(1:9)]
+
+z_TddsONormcounts_deg = scale(t(ddsONormcounts_deg), center = TRUE, scale = TRUE)
+z_ddsONormcounts_deg <- data.frame(t(z_TddsONormcounts_deg))
+write.table(z_ddsONormcounts_deg, "z_ddsNormcounts_deg.txt", sep="\t", quote=F, col.names=NA)
+head(z_ddsONormcounts_deg,2)
+dim(z_ddsONormcounts_deg)
+breaksListn <- seq(-4, 4, by = 0.01)
+pheatmap(z_ddsONormcounts_deg,color = colorRampPalette(c("red", "black", "green"))(length(breaksListn)), breaks = breaksListn,fontsize = 6,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T)
+
+```
+
+### Evaluate some gene of interest
+```{r Looking at some genes of interest}
+genesofinterest <- read.table("/mnt/home3/reid/av638/rnaseq/iva_lab_gencode/outfolder/genetolook.txt")
+colnames(genesofinterest) <- "symbol"
+vsdOcounts["symbol"] <- unlist(lapply(strsplit(vsdOcounts$genes, "%"), function(x) x[2]))
+vsdOcountsgeneint <- merge(vsdOcounts, genesofinterest, by="symbol", all.y=T)
+rownames(vsdOcountsgeneint) <- vsdOcountsgeneint$genes
+vsdOcountsgeneint <- vsdOcountsgeneint[,-1]
+
+z_ddsONormcounts["symbol"] <- unlist(lapply(strsplit(z_ddsONormcounts$genes, "%"), function(x) x[2]))
+z_ddsONormcountsgeneint <- merge(z_ddsONormcounts, genesofinterest, by="symbol", all.y=T)
+rownames(z_ddsONormcountsgeneint) <- z_ddsONormcountsgeneint$genes
+z_ddsONormcountsgeneint <- z_ddsONormcountsgeneint[,-1]
+breaksListn <- seq(-4, 4, by = 0.01)
+pheatmap(z_ddsONormcountsgeneint[,1:14],color = colorRampPalette(c("red", "black", "green"))(length(breaksListn)), breaks = breaksListn,fontsize = 10,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T)
+```
+
+#Pipeline ChIP-Seq
+#iva_lab_gencode
+#Single-end
+####/mnt/home3/slurm/slurm_sub.py nextflow run nf-core/chipseq -r 1.2.2 -profile singularity --outdir outfolder -c /mnt/home3/nextflow/gurdon.config --fasta GRCh38.p13.genome.fa --gtf GRCh38.gencode.v41.chr_patch_hapl_scaff.annotation.gtf --input design.csv --save_reference --single_end --macs_gsize 2.8e9
+
+#Paired-end
+####/mnt/home3/slurm/slurm_sub.py nextflow run nf-core/chipseq -r 1.2.2 -profile singularity --outdir outfolder -c /mnt/home3/nextflow/gurdon.config --fasta GRCh38.p13.genome.fa --gtf GRCh38.gencode.v41.chr_patch_hapl_scaff.annotation.gtf --input design.csv --save_reference --macs_gsize 2.8e9
+
+####iva_lab_gencode chromatin state
+###java  -mx4000M -jar ~/tools_av/ChromHMM/ChromHMM.jar BinarizeBam  -mixed  ~/tools_av/ChromHMM/CHROMSIZES/hg38.txt /mnt/home3/reid/av638/chipseq/iva_lab_gencode/bams chromhmmbamfiles.txt outputBinarizeddata 
+
+###( -mixed option itself determine the single end or paired end mode http://compbio.mit.edu/ChromHMM/ChromHMM_manual.pdf)
+
+###java  -mx4000M -jar ~/tools_av/ChromHMM/ChromHMM.jar LearnModel -p 2 outputBinarizeddata outLearnModel 10 hg38
+
+## ---- Incorporate ChIP-Seq data  --- ##
+### Read histone peak files macs2
+```{r Read histone peak files macs2}
+histone_peakfiles <- list.files(path="/mnt/home3/reid/av638/chipseq/iva_lab_gencode/PE/outfolder/bwa/mergedLibrary/macs2", pattern="*.broadPeak.chr.txt")
+histone_peakfiles_list = list()
+print('Histone peak files in analysis')
+for (file in histone_peakfiles){
+  #print(file)
+  filenames <- gsub("_peaks.broadPeak.chr.txt","",file)
+  print(filenames)
+  histone_peakfiles_list[[filenames]] <- paste0("/mnt/home3/reid/av638/chipseq/iva_lab_gencode/PE/outfolder/bwa/mergedLibrary/macs2/", file)
+}
+#Explore peak files: ChIPseeker
+txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene 
+promoter <- getPromoters(TxDb=txdb, upstream=3000, downstream=3000)
+histone_tagMatrixList <- lapply(histone_peakfiles_list, getTagMatrix, windows=promoter)
+plotAvgProf(histone_tagMatrixList, xlim=c(-3000, 3000))
+plotAvgProf(histone_tagMatrixList, xlim=c(-3000, 3000), conf=0.95,resample=500, facet="row")
+#tagHeatmap(histone_tagMatrixList, xlim=c(-3000, 3000), color=NULL)
+```
+
+### Read histone peak files epic2
+```{r Read histone peak files epic2}
+histone_epic2_peakfiles <- list.files(path="/mnt/home3/reid/av638/chipseq/iva_lab_gencode/PE/outfolder/bwa/mergedLibrary/epic2", pattern="*_peaks.bed")
+histone_epic2_peakfiles_list = list()
+print('histone_epic2 peak files in analysis')
+for (file in histone_epic2_peakfiles){
+  #print(file)
+  filenames <- gsub("_peaks.bed","",file)
+  print(filenames)
+  histone_epic2_peakfiles_list[[filenames]] <- paste0("/mnt/home3/reid/av638/chipseq/iva_lab_gencode/PE/outfolder/bwa/mergedLibrary/epic2/", file)
+}
+txdb <- TxDb.Hsapiens.UCSC.hg38.knownGene 
+promoter <- getPromoters(TxDb=txdb, upstream=3000, downstream=3000)
+histone_epic2_tagMatrixList <- lapply(histone_epic2_peakfiles_list, getTagMatrix, windows=promoter)
+plotAvgProf(histone_epic2_tagMatrixList, xlim=c(-3000, 3000))
+plotAvgProf(histone_epic2_tagMatrixList, xlim=c(-3000, 3000), conf=0.95,resample=500, facet="row")
+#tagHeatmap(histone_epic2_tagMatrixList, xlim=c(-3000, 3000), color=NULL)
+```
+
+
+### chromatin state determination: chromHMM
+```{r Reading bedfile, message=FALSE}
+#10 represents 10 states were called, used H3K27me3 K562
+KBM7_10_dense.bed <- read.table("/mnt/home3/reid/av638/chipseq/iva_lab_gencode/chromHMM/k562outLearnModel/KBM7_10_dense.bed", header = F, skip = 1, stringsAsFactors = F)
+head(KBM7_10_dense.bed)
+#Column V4 is state
+#So filter by column V4
+
+chrohmm_list <- list() 
+chrohmm_list_gr <- list()
+
+for (i in seq(1:10)){
+  #Make a list for all states
+  state_name <- paste0('KBM7_10_dense_state',i)
+  temp <- KBM7_10_dense.bed[which(KBM7_10_dense.bed$V4 == i),]
+  write.table(data.frame(temp),paste0("/mnt/home3/reid/av638/chipseq/iva_lab_gencode/chromHMM/KBM7_10_dense_state",i,".bed"), sep = "\t", quote = F, append = F, row.names = F, col.names = F)
+  temp <- temp[,c(1:4)]
+  colnames(temp) <- c("chr","start","end","state")
+  print(dim(temp))
+  chrohmm_list[[state_name]] <- temp
+  #Make granges and put in a list
+  temp_gr <- makeGRangesFromDataFrame(temp,seqnames.field=c("chr"),start.field=c("start"),end.field=c("end"))
+  chrohmm_list_gr[[state_name]] <- temp_gr
+  temp_gr.txdb <- annotatePeak(temp_gr, tssRegion=c(-0, 0),TxDb=txdb, annoDb="org.Hs.eg.db")
+}
+### Annotating states to genomic features
+##plotAnnoPie(temp_gr.txdb)
+chrohmmpeakAnnoList <- lapply(chrohmm_list_gr, annotatePeak, tssRegion=c(-0, 0),TxDb=txdb, annoDb="org.Hs.eg.db")
+plotAnnoBar(chrohmmpeakAnnoList)
+plotDistToTSS(chrohmmpeakAnnoList)
+im_emissions_10.png <- imager::load.image("/mnt/home3/reid/av638/chipseq/iva_lab_gencode/chromHMM/k562outLearnModel/emissions_10.png")
+plot(im_emissions_10.png)
+```
+
+
+
+#Make 6 folders gene_bam_histone, promoter_bam_histone, promoter_n_states, promoter_n_histonemarks, gene_n_states, gene_n_histonmarks 
+### Annotation to regions
+###################### Explore Genes #####################
+### Let's extract combination of genes w.r.t BAM of histonemarks  ./getbamcoverage_gene.sh
+```{r All genes with their chromatin bam_histone}
+allgenes_n_bam_histone_cov.files <- list.files(path = "/mnt/home3/reid/av638/chipseq/iva_lab_gencode/gene_bam_histone", pattern = "*_genes_coverage.bed")
+temp23list <- list()
+for (x in allgenes_n_bam_histone_cov.files){
+  print(paste0(x))
+  temp23 <- read.table(paste0("/mnt/home3/reid/av638/chipseq/iva_lab_gencode/gene_bam_histone/",x), header = F, stringsAsFactors = F)
+  temp23list[[x]] <- temp23
+}
+assign("annotations_b_hg38_eldf_gene_bam_histone_cov_list", temp23list)
+temp23df <-  do.call(cbind,temp23list)
+temp23df <- temp23df[,c(1:7,seq(8,length(temp23df),11))]
+colnames(temp23df) <- c("chr","start","end","strand","type","ensID","gene","H3K27ac","H3K27me3","H3K36me3","H3K4me1","H3K4me2","H3K4me3","H3K79me2","H3K9ac","H3K9me3","H4K16ac","Input_K27ac_K4_K36_K16", "Input_K27me3","Input_K9ac_K4_K79", "Input_K9me3")
+rownames(temp23df) <- paste0(temp23df$chr, "%",
+                            temp23df$start, "%",
+                            temp23df$end, "%",
+                            temp23df$gene, "%",
+                            temp23df$strand, "%",
+                            temp23df$ensID)
+temp23df <- temp23df[,-c(1:7)]
+assign("annotations_b_hg38_eldf_gene_bam_histone_cov_df", temp23df)
+rm(list = ls(pattern = 'temp23'))
+```
+
+
+### Let's extract combination of genes with state coordinates ./getStatecoverage_genes.sh 
+### All genes genes and chromatin state
+```{r All genes with their chromatin state}
+allgenes_n_state_cov.files <- list.files(path = "/mnt/home3/reid/av638/chipseq/iva_lab_gencode/gene_n_states", pattern = "*_all_genes_cov.bdg")
+temp24list <- list()
+for (x in allgenes_n_state_cov.files){
+  print(paste0(x))
+  temp24 <- read.table(paste0("/mnt/home3/reid/av638/chipseq/iva_lab_gencode/gene_n_states/",x), header = F, stringsAsFactors = F)
+  temp24list[[x]] <- temp24
+}
+assign("annotations_b_hg38_eldf_allgenes_n_state_cov_list", temp24list)
+temp24df <-  do.call(cbind,temp24list)
+temp24df <- temp24df[,c(1:7,seq(8,length(temp24df),11))]
+colnames(temp24df) <- c("chr","start","end","strand","type","ensID","gene","state1","state10","state2","state3","state4","state5","state6","state7","state8","state9")
+rownames(temp24df) <- paste0(temp24df$chr, "%",
+                            temp24df$start, "%",
+                            temp24df$end, "%",
+                            temp24df$gene, "%",
+                            temp24df$strand, "%",
+                            temp24df$ensID)
+temp24df <- temp24df[,-c(1:7)]
+assign("annotations_b_hg38_eldf_allgenes_n_state_cov_df", temp24df)
+annotations_b_hg38_eldf_allgenes_n_state_cov_df <- annotations_b_hg38_eldf_allgenes_n_state_cov_df[,c(1,3:10,2)]
+rm(list = ls(pattern = 'temp24'))
+```
+
+
+### Let's extract combination of genes with peak histonemarks ./getHistone_markscoverage_genes.sh
+```{r Heatmap for combination of DEGs with state and histonemarks}
+allgenes_n_histonemarks_cov.files <- list.files(path = "/mnt/home3/reid/av638/chipseq/iva_lab_gencode/gene_n_histonemarks", pattern = "*.bed")
+temp25list <- list()
+for (x in allgenes_n_histonemarks_cov.files){
+  print(paste0(x))
+  temp25 <- read.table(paste0("/mnt/home3/reid/av638/chipseq/iva_lab_gencode/gene_n_histonemarks/",x), header = F, stringsAsFactors = F)
+  temp25list[[x]] <- temp25
+}
+assign("annotations_b_hg38_eldf_allgenes_n_histonemarks_cov_list", temp25list)
+temp25df <-  do.call(cbind,temp25list)
+temp25df <- temp25df[,c(1:7,seq(8,length(temp25df),11))]
+colnames(temp25df) <- c("chr","start","end","strand","type","ensID","gene","H3K27ac","H3K27me3","H3K36me3","H3K4me1","H3K4me2","H3K4me3","H3K79me2","H3K9ac","H3K9me3","H4K16ac")
+rownames(temp25df) <- paste0(temp25df$chr, "%",
+                            temp25df$start, "%",
+                            temp25df$end, "%",
+                            temp25df$gene, "%",
+                            temp25df$strand, "%",
+                            temp25df$ensID)
+temp25df <- temp25df[,-c(1:7)]
+assign("annotations_b_hg38_eldf_allgenes_n_histonemarks_cov_df", temp25df)
+rm(list = ls(pattern = 'temp25'))
+```
+
+
+
+#Rearrange histone bam coverage to genes
+```{r Rearrange chromatin states to genes}
+temp26 <- annotations_b_hg38_eldf_gene_bam_histone_cov_df
+for (names_i in names(annotations_b_hg38_eldf_gene_bam_histone_cov_df)){
+  print(names_i)
+  temp26_names_i <- temp26[,names_i]
+  #print(head(temp26_names_i))
+  temp26[names_i] <- ifelse(temp26_names_i >= 1, names_i, NA)
+}
+temp26["histonemarks"] <- apply(temp26[ , colnames(temp26)] , 1 , paste , collapse = "," )
+temp26$histonemarks <- gsub(",NA","",temp26$histonemarks)
+temp26$histonemarks <- gsub("NA,","",temp26$histonemarks)
+temp26$histonemarks <- gsub("NA","",temp26$histonemarks)
+temp26["feature"] <- rownames(temp26)
+temp26 <- temp26[,-c(1:14)]
+temp26_sep <- cSplit(temp26,"feature","%")
+temp26_sep <- temp26_sep[,c(2:7,1)]
+temp26_sep <- data.frame(temp26_sep)
+temp26_sep["ID"] <- paste0(temp26_sep$feature_6, "%", temp26_sep$feature_4)
+annotations_b_hg38_eldf_gene_bam_histone_cov_df_sep <- temp26_sep
+rm(list = ls(pattern = 'temp26'))
+```
+
+
+
+#Rearrange chromatin states to genes
+```{r Rearrange chromatin states to genes, warning=FALSE}
+temp27 <- annotations_b_hg38_eldf_allgenes_n_state_cov_df
+for (names_i in names(annotations_b_hg38_eldf_allgenes_n_state_cov_df)){
+  print(names_i)
+  temp27_names_i <- temp27[,names_i]
+  #print(head(temp27_names_i))
+  temp27[names_i] <- ifelse(temp27_names_i >= 1, names_i, NA)
+}
+temp27["states"] <- apply(temp27[ , colnames(temp27)] , 1 , paste , collapse = "," )
+temp27$states <- gsub(",NA","",temp27$states)
+temp27$states <- gsub("NA,","",temp27$states)
+temp27["feature"] <- rownames(temp27)
+temp27 <- temp27[,-c(1:10)]
+temp27_sep <- cSplit(temp27,"feature","%")
+temp27_sep <- temp27_sep[,c(2:7,1)]
+temp27_sep <- data.frame(temp27_sep)
+temp27_sep["ID"] <- paste0(temp27_sep$feature_6, "%", temp27_sep$feature_4)
+annotations_b_hg38_eldf_allgenes_n_state_cov_df_sep <- temp27_sep
+rm(list = ls(pattern = 'temp27'))
+```
+
+
+#Rearrange histonemarks to genes
+```{r Rearrange histonemarks to genes, message=FALSE, warning=FALSE}
+temp28 <- annotations_b_hg38_eldf_allgenes_n_histonemarks_cov_df
+for (names_i in names(annotations_b_hg38_eldf_allgenes_n_histonemarks_cov_df)){
+  print(names_i)
+  temp28_names_i <- temp28[,names_i]
+  #print(head(temp28_names_i))
+  temp28[names_i] <- ifelse(temp28_names_i >= 1, names_i, NA)
+}
+temp28["histonemarks"] <- apply(temp28[ , colnames(temp28)] , 1 , paste , collapse = "," )
+temp28$histonemarks <- gsub(",NA","",temp28$histonemarks)
+temp28$histonemarks <- gsub("NA,","",temp28$histonemarks)
+temp28$histonemarks <- gsub("NA","",temp28$histonemarks)
+temp28["feature"] <- rownames(temp28)
+temp28 <- temp28[,-c(1:10)]
+temp28_sep <- cSplit(temp28,"feature","%")
+temp28_sep <- temp28_sep[,c(2:7,1)]
+temp28_sep <- data.frame(temp28_sep)
+temp28_sep["ID"] <- paste0(temp28_sep$feature_6 , "%", temp28_sep$feature_4)
+annotations_b_hg38_eldf_allgenes_n_histonemarks_cov_df_sep <- temp28_sep
+rm(list = ls(pattern = 'temp28'))
+```
+
+
+###Histone BAM coverage gene tagging is not so important, so I only focus on histone peaks and states
+#Tag histonemarks-genes_gene and state-genes_gene with gene_expression profile
+```{r Tag histonemarks-genes_gene and state-genes_gene with gene_expression profile}
+#annotations_b_hg38_eldf_allgenes_n_state_cov_df_sep
+#annotations_b_hg38_eldf_allgenes_n_histonemarks_cov_df_sep
+for (z in c("res_C1KO_R7508", "res_H1_4KO_R7508", "res_MTF2KO_R7508", "res_SUZ12KO_R7508")){
+  print(paste0(z,"_df"))
+  temp29_df <- get(paste0(z,"_df"))
+  temp29_df["genes"] <- rownames(temp29_df)
+  
+  print(paste0(z,"_allgenes_n_state"))
+  temp29_genes_n_state <- merge(data.frame(annotations_b_hg38_eldf_allgenes_n_state_cov_df_sep), temp29_df, by.x="ID", by.y="genes", all.y=TRUE)
+  temp29_genes_n_state <- temp29_genes_n_state[,-1]
+  assign(paste0(z,"_allgenes_n_state"),temp29_genes_n_state)
+  
+  print(paste0(z,"_allgenes_n_histonemarks"))
+  temp29_genes_n_histonemarks <- merge(data.frame(annotations_b_hg38_eldf_allgenes_n_histonemarks_cov_df_sep), temp29_df, by.x="ID", by.y="genes", all.y=TRUE)
+  temp29_genes_n_histonemarks <- temp29_genes_n_histonemarks[,-1]
+  assign(paste0(z,"_allgenes_n_histonemarks"),temp29_genes_n_histonemarks)
+}
+```
+
+### Barplot of count of histonemarks-genes_gene and state-genes_gene 
+```{r Barplot of count of histonemarks-genes_gene and state-genes_gene }
+for (diffexp in c("Upregulated", "Downregulated", "Unchanged")){
+  #print(diffexp)
+  for (z in c("res_C1KO_R7508", "res_H1_4KO_R7508", "res_MTF2KO_R7508", "res_SUZ12KO_R7508")){
+    #print(z)
+    #Get states
+    #print(paste0(z,"_allgenes_n_state","_",diffexp))
+    temp30_genes_n_state <- get(paste0(z,"_allgenes_n_state"))
+    temp30_genes_n_state_count <- plyr::count(data.frame(states=unlist(strsplit((temp30_genes_n_state[which(temp30_genes_n_state$Expression == diffexp),])$states, ","))),"states")
+    temp30_genes_n_state_count <- temp30_genes_n_state_count[order(-temp30_genes_n_state_count$freq),]
+    temp30_genes_n_state_countbar <- ggplot(data=temp30_genes_n_state_count, aes(x=states, y=freq)) +
+      geom_bar(stat="identity") +coord_flip() + theme_classic() + ggtitle(paste0(z,"_allgenes_n_state_countbar","_",diffexp))
+    print(paste0(z,"_allgenes_n_state_countbar","_",diffexp))
+    assign(paste0(z,"_allgenes_n_state_countbar","_",diffexp),temp30_genes_n_state_countbar)
+    #Get histone marks
+    temp30_genes_n_histonemarks <- get(paste0(z,"_allgenes_n_histonemarks"))
+    temp30_genes_n_histonemarks_count <- plyr::count(data.frame(histonemarks=unlist(strsplit((temp30_genes_n_histonemarks[which(temp30_genes_n_histonemarks$Expression == diffexp),])$histonemarks, ","))),"histonemarks")
+    temp30_genes_n_histonemarks_count <- temp30_genes_n_histonemarks_count[order(-temp30_genes_n_histonemarks_count$freq),]
+    temp30_genes_n_histonemarks_countbar <- ggplot(data=temp30_genes_n_histonemarks_count, aes(x=histonemarks, y=freq)) +
+      geom_bar(stat="identity") +coord_flip() + theme_classic() + ggtitle(paste0(z,"_allgenes_n_histonemarks_countbar","_",diffexp))
+    print(paste0(z,"_allgenes_n_histonemarks_countbar","_",diffexp))
+    assign(paste0(z,"_allgenes_n_histonemarks_countbar","_",diffexp),temp30_genes_n_histonemarks_countbar)
+  }
+}
+rm(list = ls(pattern = 'temp30'))
+ggpubr::ggarrange(res_C1KO_R7508_allgenes_n_state_countbar_Upregulated,res_H1_4KO_R7508_allgenes_n_state_countbar_Upregulated,res_MTF2KO_R7508_allgenes_n_state_countbar_Upregulated,res_SUZ12KO_R7508_allgenes_n_state_countbar_Upregulated,res_C1KO_R7508_allgenes_n_state_countbar_Downregulated,res_H1_4KO_R7508_allgenes_n_state_countbar_Downregulated,res_MTF2KO_R7508_allgenes_n_state_countbar_Downregulated,res_SUZ12KO_R7508_allgenes_n_state_countbar_Downregulated,res_C1KO_R7508_allgenes_n_state_countbar_Unchanged,res_H1_4KO_R7508_allgenes_n_state_countbar_Unchanged,res_MTF2KO_R7508_allgenes_n_state_countbar_Unchanged,res_SUZ12KO_R7508_allgenes_n_state_countbar_Unchanged,res_C1KO_R7508_allgenes_n_histonemarks_countbar_Upregulated,res_H1_4KO_R7508_allgenes_n_histonemarks_countbar_Upregulated,res_MTF2KO_R7508_allgenes_n_histonemarks_countbar_Upregulated,res_SUZ12KO_R7508_allgenes_n_histonemarks_countbar_Upregulated,res_C1KO_R7508_allgenes_n_histonemarks_countbar_Downregulated,res_H1_4KO_R7508_allgenes_n_histonemarks_countbar_Downregulated,res_MTF2KO_R7508_allgenes_n_histonemarks_countbar_Downregulated,res_SUZ12KO_R7508_allgenes_n_histonemarks_countbar_Downregulated,res_C1KO_R7508_allgenes_n_histonemarks_countbar_Unchanged,res_H1_4KO_R7508_allgenes_n_histonemarks_countbar_Unchanged,res_MTF2KO_R7508_allgenes_n_histonemarks_countbar_Unchanged,res_SUZ12KO_R7508_allgenes_n_histonemarks_countbar_Unchanged, ncol=4, nrow=6, common.legend = TRUE, labels=toupper(c("C1KO_R7508_state_Up","H1_4KO_R7508_state_Up","MTF2KO_R7508_state_Up","SUZ12KO_R7508_state_Up","C1KO_R7508_state_Down","H1_4KO_R7508_state_Down","MTF2KO_R7508_state_Down","SUZ12KO_R7508_state_Down","C1KO_R7508_state_Un","H1_4KO_R7508_state_Un","MTF2KO_R7508_state_Un","SUZ12KO_R7508_state_Un","C1KO_R7508_histonemarks_Up","H1_4KO_R7508_histonemarks_Up","MTF2KO_R7508_histonemarks_Up","SUZ12KO_R7508_histonemarks_Up","C1KO_R7508_histonemarks_Down","H1_4KO_R7508_histonemarks_Down","MTF2KO_R7508_histonemarks_Down","SUZ12KO_R7508_histonemarks_Down","C1KO_R7508_histonemarks_Un","H1_4KO_R7508_histonemarks_Un","MTF2KO_R7508_histonemarks_Un","SUZ12KO_R7508_histonemarks_Un")), vjust = 1,hjust=-0.5,font.label = list(size = 8, color = "black", face = "bold", family = NULL))
+
+#condition__allgenes_n_state_histonemarks_countbar_diffexp.pdf
+```
+
+
+#Tag histonemarks-genes_topgene and state-genes_topgene with gene_expression profile
+```{r Tag histonemarks-genes_topgene and state-genes_topgene with gene_expression profile}
+#annotations_b_hg38_eldf_allgenes_n_state_cov_df_sep
+#annotations_b_hg38_eldf_allgenes_n_histonemarks_cov_df_sep
+for (z in c("res_C1KO_R7508", "res_H1_4KO_R7508", "res_MTF2KO_R7508", "res_SUZ12KO_R7508")){
+  print(paste0(z,"_top_de_genes"))
+  temp31_df <- get(paste0(z,"_top_de_genes"))
+  temp31_df["genes"] <- rownames(temp31_df)
+  
+  print(paste0(z,"_topde_genes_n_state"))
+  temp31_genes_n_state <- merge(data.frame(annotations_b_hg38_eldf_allgenes_n_state_cov_df_sep), temp31_df, by.x="ID", by.y="genes", all.y=TRUE)
+  assign(paste0(z,"_topde_genes_n_state"),temp31_genes_n_state)
+  
+  print(paste0(z,"_topde_genes_n_histonemarks"))
+  temp31_genes_n_histonemarks <- merge(data.frame(annotations_b_hg38_eldf_allgenes_n_histonemarks_cov_df_sep), temp31_df, by.x="ID", by.y="genes", all.y=TRUE)
+  assign(paste0(z,"_topde_genes_n_histonemarks"),temp31_genes_n_histonemarks)
+}
+rm(list = ls(pattern = 'temp31'))
+```
+
+### Heatmap of genes with state and histonemarks
+```{r Heatmap of promter and genes with state and histonemarks}
+breaksListl <- seq(0, 4, by = 1)
+pheatmap(annotations_b_hg38_eldf_allgenes_n_state_cov_df,color = colorRampPalette(c("white", "red"))(length(breaksListl)), breaks = breaksListl,fontsize = 10,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = F, show_colnames = T)
+
+pheatmap(annotations_b_hg38_eldf_allgenes_n_histonemarks_cov_df,color = colorRampPalette(c("white", "red"))(length(breaksListl)), breaks = breaksListl,fontsize = 10,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = F, show_colnames = T)
+```
+
+###-------------------  Promoter explore ---------------------###
+
+### Get promoter regions
+```{r Get genomic features from annotatr}
+
+#Annotation to regions
+library(annotatr)
+annots_basic_gelements = c('hg38_cpgs','hg38_basicgenes', 'hg38_genes_intergenic','hg38_genes_cds')
+
+annotations_b_hg38_el = build_annotations(genome = 'hg38', annotations = annots_basic_gelements)
+
+
+annotations_b_hg38_eldf <- data.frame(annotations_b_hg38_el)
+annotations_b_hg38_eldf <- annotations_b_hg38_eldf[which(annotations_b_hg38_eldf$start > 0),]
+annotations_b_hg38_eldf <- annotations_b_hg38_eldf[which(annotations_b_hg38_eldf$end > 0),]
+
+head(annotations_b_hg38_eldf)
+dim(annotations_b_hg38_eldf)
+write.table(data.frame(annotations_b_hg38_eldf), "/mnt/home3/reid/av638/chipseq/iva_lab_gencode/bams/annotations_b_hg38_eldf.txt", sep="\t", quote = F, append = F, row.names = F, col.names = F)
+
+annotations_b_hg38_eldf_promoter <- annotations_b_hg38_eldf[which(annotations_b_hg38_eldf$type == "hg38_genes_promoters"),]
+write.table(data.frame(annotations_b_hg38_eldf_promoter), "/mnt/home3/reid/av638/chipseq/iva_lab_gencode/bams/annotations_b_hg38_eldf_promoter.txt", sep="\t", quote = F, append = F, row.names = F, col.names = F)
+
+annotations_b_hg38_eldf_promoter_sorted <- annotations_b_hg38_eldf_promoter[order(annotations_b_hg38_eldf_promoter$seqnames, annotations_b_hg38_eldf_promoter$start),]
+
+annotations_b_hg38_eldf_promoter_sorted <- annotations_b_hg38_eldf_promoter_sorted[,c(1:3,6,4,5,7:10)]
+
+#Clear NA
+annotations_b_hg38_eldf_promoter_sorted <- annotations_b_hg38_eldf_promoter_sorted[!is.na(annotations_b_hg38_eldf_promoter_sorted$symbol),]
+
+write.table(data.frame(annotations_b_hg38_eldf_promoter_sorted), "/mnt/home3/reid/av638/chipseq/iva_lab_gencode/bams/annotations_b_hg38_eldf_promoter_sorted.txt", sep="\t", quote = F, append = F, row.names = F, col.names = F)
+
+#bedtools merge -s -i /mnt/home3/reid/av638/chipseq/iva_lab_gencode/bams/annotations_b_hg38_eldf_promoter_sorted.txt -o collapse -c 4,6,7,8,9 > annotations_b_hg38_eldf_promoter_sorted_merge.txt
+
+annotations_b_hg38_eldf_promoter_sorted_merge <- read.table("/mnt/home3/reid/av638/chipseq/iva_lab_gencode/bams/annotations_b_hg38_eldf_promoter_sorted_merge.txt", header = F, stringsAsFactors = F)
+
+dim(annotations_b_hg38_eldf_promoter_sorted_merge)
+
+write.table(data.frame(annotations_b_hg38_eldf_promoter_sorted_merge[,c(1,2,3,4,5,6,8)]), "/mnt/home3/reid/av638/chipseq/iva_lab_gencode/bams/annotations_b_hg38_eldf_promoter_re.txt", sep="\t", quote = F, append = F, row.names = F, col.names = F)
+
+
+```
+
+
+### Let's extract combination of promoter w.r.t BAM of histonemarks  (not doing this for now)
+
+### Let's extract combination of promoter w.r.t state coordinates
+### ./getStatecoverage_promoter.sh
+```{r All promoters with their chromatin state}
+promoter_n_state_cov.files <- list.files(path = "/mnt/home3/reid/av638/chipseq/iva_lab_gencode/promoter_n_states", pattern = "*_all_promoter_cov.bdg")
+temp32list <- list()
+for (x in promoter_n_state_cov.files){
+  print(paste0(x))
+  temp32 <- read.table(paste0("/mnt/home3/reid/av638/chipseq/iva_lab_gencode/promoter_n_states/",x), header = F, stringsAsFactors = F)
+  temp32list[[x]] <- temp32
+}
+assign("annotations_b_hg38_eldf_promoter_n_state_cov_list", temp32list)
+temp32df <-  do.call(cbind,temp32list)
+temp32df <- temp32df[,c(1:7,seq(8,length(temp32df),11))]
+colnames(temp32df) <- c("chr","start","end","strand","type","gene","promoter","state1","state10","state2","state3","state4","state5","state6","state7","state8","state9")
+rownames(temp32df) <- paste0(temp32df$chr, "%",
+                            temp32df$start, "%",
+                            temp32df$end, "%",
+                            temp32df$promoter, "%",
+                            temp32df$strand, "%",
+                            temp32df$gene)
+temp32df <- temp32df[,-c(1:7)]
+assign("annotations_b_hg38_eldf_promoter_n_state_cov_df", temp32df)
+annotations_b_hg38_eldf_promoter_n_state_cov_df <- annotations_b_hg38_eldf_promoter_n_state_cov_df[,c(1,3:10,2)]
+rm(list = ls(pattern = 'temp32'))
+```
+
+
+### Let's extract combination of promoters with peak histonemarks 
+### ./getHistone_markscoverage_promoter.sh
+```{r Heatmap for combination of DEGs with state and histonemarks}
+promoter_n_histonemarks_cov.files <- list.files(path = "/mnt/home3/reid/av638/chipseq/iva_lab_gencode/promoter_n_histonemarks", pattern = "*.bed")
+temp33list <- list()
+for (x in promoter_n_histonemarks_cov.files){
+  print(paste0(x))
+  temp33 <- read.table(paste0("/mnt/home3/reid/av638/chipseq/iva_lab_gencode/promoter_n_histonemarks/",x), header = F, stringsAsFactors = F)
+  temp33list[[x]] <- temp33
+}
+assign("annotations_b_hg38_eldf_promoter_n_histonemarks_cov_list", temp33list)
+temp33df <-  do.call(cbind,temp33list)
+temp33df <- temp33df[,c(1:7,seq(8,length(temp33df),11))]
+colnames(temp33df) <- c("chr","start","end","strand","type","ensID","promoter","H3K27ac","H3K27me3","H3K36me3","H3K4me1","H3K4me2","H3K4me3","H3K79me2","H3K9ac","H3K9me3","H4K16ac")
+rownames(temp33df) <- paste0(temp33df$chr, "%",
+                            temp33df$start, "%",
+                            temp33df$end, "%",
+                            temp33df$promoter, "%",
+                            temp33df$strand, "%",
+                            temp33df$ensID)
+temp33df <- temp33df[,-c(1:7)]
+assign("annotations_b_hg38_eldf_promoter_n_histonemarks_cov_df", temp33df)
+rm(list = ls(pattern = 'temp33'))
+```
+
+#Rearrange chromatin states to promoters
+```{r Rearrange chromatin states to promoters, warning=FALSE}
+temp35 <- annotations_b_hg38_eldf_promoter_n_state_cov_df
+for (names_i in names(annotations_b_hg38_eldf_promoter_n_state_cov_df)){
+  print(names_i)
+  temp35_names_i <- temp35[,names_i]
+  #print(head(temp35_names_i))
+  temp35[names_i] <- ifelse(temp35_names_i >= 1, names_i, NA)
+}
+temp35["states"] <- apply(temp35[ , colnames(temp35)] , 1 , paste , collapse = "," )
+temp35$states <- gsub(",NA","",temp35$states)
+temp35$states <- gsub("NA,","",temp35$states)
+temp35["feature"] <- rownames(temp35)
+temp35 <- temp35[,-c(1:10)]
+temp35_sep <- cSplit(temp35,"feature","%")
+temp35_sep <- temp35_sep[,c(2:7,1)]
+temp35_sep <- data.frame(temp35_sep)
+temp35_sep["ID"] <- paste0(temp35_sep$feature_6, "%", temp35_sep$feature_4)
+annotations_b_hg38_eldf_promoter_n_state_cov_df_sep <- temp35_sep
+rm(list = ls(pattern = 'temp35'))
+```
+
+
+#Rearrange histonemarks to promoters
+```{r Rearrange histonemarks to promoters, message=FALSE, warning=FALSE}
+temp36 <- annotations_b_hg38_eldf_promoter_n_histonemarks_cov_df
+for (names_i in names(annotations_b_hg38_eldf_promoter_n_histonemarks_cov_df)){
+  print(names_i)
+  temp36_names_i <- temp36[,names_i]
+  #print(head(temp36_names_i))
+  temp36[names_i] <- ifelse(temp36_names_i >= 1, names_i, NA)
+}
+temp36["histonemarks"] <- apply(temp36[ , colnames(temp36)] , 1 , paste , collapse = "," )
+temp36$histonemarks <- gsub(",NA","",temp36$histonemarks)
+temp36$histonemarks <- gsub("NA,","",temp36$histonemarks)
+temp36$histonemarks <- gsub("NA","",temp36$histonemarks)
+temp36["feature"] <- rownames(temp36)
+temp36 <- temp36[,-c(1:10)]
+temp36_sep <- cSplit(temp36,"feature","%")
+temp36_sep <- temp36_sep[,c(2:7,1)]
+temp36_sep <- data.frame(temp36_sep)
+temp36_sep["ID"] <- paste0(temp36_sep$feature_6 , "%", temp36_sep$feature_4)
+annotations_b_hg38_eldf_promoter_n_histonemarks_cov_df_sep <- temp36_sep
+rm(list = ls(pattern = 'temp36'))
+```
+
+
+###Histone BAM coverage promoter tagging is not so important, so I only focus on histone peaks and states
+#Tag histonemarks-promoters_promoter and state-promoters_promoter with gene_expression profile
+```{r Tag histonemarks-promoters_promoter and state-promoters_promoter with promoter_expression profile}
+#annotations_b_hg38_eldf_promoter_n_state_cov_df_sep
+#annotations_b_hg38_eldf_promoter_n_histonemarks_cov_df_sep
+for (z in c("res_C1KO_R7508", "res_H1_4KO_R7508", "res_MTF2KO_R7508", "res_SUZ12KO_R7508")){
+  print(paste0(z,"_df"))
+  temp37_df <- get(paste0(z,"_df"))
+  temp37_df["genes"] <- unlist(lapply(strsplit(rownames(temp37_df), "%"), function(x) x[2]))
+  
+  print(paste0(z,"_allpromoters_n_state"))
+  temp37_promoters_n_state <- merge(data.frame(annotations_b_hg38_eldf_promoter_n_state_cov_df_sep), temp37_df, by.x="feature_6", by.y="genes", all.y=TRUE)
+  temp37_promoters_n_state <- temp37_promoters_n_state[,-1]
+  assign(paste0(z,"_allpromoters_n_state"),temp37_promoters_n_state)
+  
+  print(paste0(z,"_allpromoters_n_histonemarks"))
+  temp37_promoters_n_histonemarks <- merge(data.frame(annotations_b_hg38_eldf_promoter_n_histonemarks_cov_df_sep), temp37_df, by.x="feature_6", by.y="genes", all.y=TRUE)
+  temp37_promoters_n_histonemarks <- temp37_promoters_n_histonemarks[,-1]
+  assign(paste0(z,"_allpromoters_n_histonemarks"),temp37_promoters_n_histonemarks)
+}
+rm(list = ls(pattern = 'temp37'))
+```
+
+### Get gene information relative to the state
+```{r Get gene information relative to the state}
+for (i in unique(res_C1KO_R7508_allpromoters_n_state$states)){
+  if(i %like% "state1"){
+    print(i)
+  }
+}
+
+```
+
+### Barplot of count of histonemarks-promoters_promoter and state-promoters_promoter (Upregulated, Downregulated, Unchanged)
+```{r Barplot of count of histonemarks-promoters_promoter and state-promoters_promoter }
+for (diffexp in c("Upregulated", "Downregulated", "Unchanged")){
+  #print(diffexp)
+  for (z in c("res_C1KO_R7508", "res_H1_4KO_R7508", "res_MTF2KO_R7508", "res_SUZ12KO_R7508")){
+    #print(z)
+    #Get states
+    #print(paste0(z,"_allpromoters_n_state","_",diffexp))
+    temp38_promoters_n_state <- get(paste0(z,"_allpromoters_n_state"))
+    temp38_promoters_n_state_count <- plyr::count(data.frame(states=unlist(strsplit((temp38_promoters_n_state[which(temp38_promoters_n_state$Expression == diffexp),])$states, ","))),"states")
+    temp38_promoters_n_state_count <- temp38_promoters_n_state_count[order(-temp38_promoters_n_state_count$freq),]
+    temp38_promoters_n_state_countbar <- ggplot(data=temp38_promoters_n_state_count, aes(x=states, y=freq)) +
+      geom_bar(stat="identity") +coord_flip() + theme_classic() + ggtitle(paste0(z,"_allpromoters_n_state_countbar","_",diffexp))
+    print(paste0(z,"_allpromoters_n_state_countbar","_",diffexp))
+    assign(paste0(z,"_allpromoters_n_state_countbar","_",diffexp),temp38_promoters_n_state_countbar)
+    #Get histone marks
+    temp38_promoters_n_histonemarks <- get(paste0(z,"_allpromoters_n_histonemarks"))
+    temp38_promoters_n_histonemarks_count <- plyr::count(data.frame(histonemarks=unlist(strsplit((temp38_promoters_n_histonemarks[which(temp38_promoters_n_histonemarks$Expression == diffexp),])$histonemarks, ","))),"histonemarks")
+    temp38_promoters_n_histonemarks_count <- temp38_promoters_n_histonemarks_count[order(-temp38_promoters_n_histonemarks_count$freq),]
+    temp38_promoters_n_histonemarks_countbar <- ggplot(data=temp38_promoters_n_histonemarks_count, aes(x=histonemarks, y=freq)) +
+      geom_bar(stat="identity") +coord_flip() + theme_classic() + ggtitle(paste0(z,"_allpromoters_n_histonemarks_countbar","_",diffexp))
+    print(paste0(z,"_allpromoters_n_histonemarks_countbar","_",diffexp))
+    assign(paste0(z,"_allpromoters_n_histonemarks_countbar","_",diffexp),temp38_promoters_n_histonemarks_countbar)
+  }
+}
+rm(list = ls(pattern = 'temp38'))
+ggpubr::ggarrange(res_C1KO_R7508_allpromoters_n_state_countbar_Upregulated,res_H1_4KO_R7508_allpromoters_n_state_countbar_Upregulated,res_MTF2KO_R7508_allpromoters_n_state_countbar_Upregulated,res_SUZ12KO_R7508_allpromoters_n_state_countbar_Upregulated,res_C1KO_R7508_allpromoters_n_state_countbar_Downregulated,res_H1_4KO_R7508_allpromoters_n_state_countbar_Downregulated,res_MTF2KO_R7508_allpromoters_n_state_countbar_Downregulated,res_SUZ12KO_R7508_allpromoters_n_state_countbar_Downregulated,res_C1KO_R7508_allpromoters_n_state_countbar_Unchanged,res_H1_4KO_R7508_allpromoters_n_state_countbar_Unchanged,res_MTF2KO_R7508_allpromoters_n_state_countbar_Unchanged,res_SUZ12KO_R7508_allpromoters_n_state_countbar_Unchanged,res_C1KO_R7508_allpromoters_n_histonemarks_countbar_Upregulated,res_H1_4KO_R7508_allpromoters_n_histonemarks_countbar_Upregulated,res_MTF2KO_R7508_allpromoters_n_histonemarks_countbar_Upregulated,res_SUZ12KO_R7508_allpromoters_n_histonemarks_countbar_Upregulated,res_C1KO_R7508_allpromoters_n_histonemarks_countbar_Downregulated,res_H1_4KO_R7508_allpromoters_n_histonemarks_countbar_Downregulated,res_MTF2KO_R7508_allpromoters_n_histonemarks_countbar_Downregulated,res_SUZ12KO_R7508_allpromoters_n_histonemarks_countbar_Downregulated,res_C1KO_R7508_allpromoters_n_histonemarks_countbar_Unchanged,res_H1_4KO_R7508_allpromoters_n_histonemarks_countbar_Unchanged,res_MTF2KO_R7508_allpromoters_n_histonemarks_countbar_Unchanged,res_SUZ12KO_R7508_allpromoters_n_histonemarks_countbar_Unchanged, ncol=4, nrow=6, common.legend = TRUE, labels=toupper(c("C1KO_R7508_state_Up","H1_4KO_R7508_state_Up","MTF2KO_R7508_state_Up","SUZ12KO_R7508_state_Up","C1KO_R7508_state_Down","H1_4KO_R7508_state_Down","MTF2KO_R7508_state_Down","SUZ12KO_R7508_state_Down","C1KO_R7508_state_Un","H1_4KO_R7508_state_Un","MTF2KO_R7508_state_Un","SUZ12KO_R7508_state_Un","C1KO_R7508_histonemarks_Up","H1_4KO_R7508_histonemarks_Up","MTF2KO_R7508_histonemarks_Up","SUZ12KO_R7508_histonemarks_Up","C1KO_R7508_histonemarks_Down","H1_4KO_R7508_histonemarks_Down","MTF2KO_R7508_histonemarks_Down","SUZ12KO_R7508_histonemarks_Down","C1KO_R7508_histonemarks_Un","H1_4KO_R7508_histonemarks_Un","MTF2KO_R7508_histonemarks_Un","SUZ12KO_R7508_histonemarks_Un")), vjust = 1,hjust=-0.5,font.label = list(size = 8, color = "black", face = "bold", family = NULL))
+rm(list = ls(pattern = 'temp38'))
+#condition__allpromoters_n_state_histonemarks_countbar_diffexp.pdf
+```
+
+
+### Let's extract coordinates of promoter using gene symbol 
+```{r Extract coordinates of promoter using gene symbol}
+#Take the file contatning all the deregulated genes i.e. subDF_all_degenes_1
+subDF_all_degenes_1["symbol"] <- unlist(lapply(strsplit(subDF_all_degenes_1$genes, "%"), function(x) x[2]))
+annotations_subDF_b_hg38_eldf_promoter <- merge(annotations_b_hg38_eldf_promoter, subDF_all_degenes_1, by.x="symbol", by.y="symbol", all.y=T)
+
+```
+
+
+### Extract different categories as in Upset plot and annotate w.r.t to histone marks and states
+```{r Explore combinations from Upset plot in terms of histone marks and state}
+plot_list_asubDF_eldf_prom_n_states <- list()
+plot_list_asubDF_eldf_prom_n_histonemarks <- list()
+upset_plot_combos <- c("r_c1ko_up","r_c1ko_down","r_h1.4ko_up","r_h1.4ko_down","r_mtf2ko_up","r_mtf2ko_down","r_suz12ko_up","r_suz12ko_down","uniq_r_c1ko_up","uniq_r_c1ko_down","uniq_r_h1.4ko_up","uniq_r_h1.4ko_down","uniq_r_mtf2ko_up","uniq_r_mtf2ko_down","uniq_r_suz12ko_up","uniq_r_suz12ko_down","uniq_r_mtf2ko_up_r_suz12ko_up","uniq_r_c1ko_up_r_h1.4ko_up_r_mtf2ko_up_r_suz12ko_up","uniq_r_c1ko_up_r_h1.4ko_up","uniq_r_c1ko_down_r_h1.4ko_down","uniq_r_c1ko_up_r_h1.4ko_up_r_suz12ko_up","uniq_r_c1ko_up_r_mtf2ko_up_r_suz12ko_up")
+for (i in upset_plot_combos){
+  #print(paste0("asubDF_eldf_prom_",i))
+  temp41_df <- data.frame("genes" = get(i))
+  asubDF_eldf_prom_temp41 <- merge(annotations_subDF_b_hg38_eldf_promoter, temp41_df, by.x= "genes", by.y= "genes", all.y=T)
+  asubDF_eldf_prom_temp41 <- asubDF_eldf_prom_temp41[,1:11]
+  asubDF_eldf_prom_temp41["ID"] <- paste0(asubDF_eldf_prom_temp41$symbol, "%", asubDF_eldf_prom_temp41$id)
+  
+  #Annotate states
+  #annotations_b_hg38_eldf_promoter_n_state_cov_df_sep
+  asubDF_eldf_prom_temp41_states <- merge(annotations_b_hg38_eldf_promoter_n_state_cov_df_sep, asubDF_eldf_prom_temp41, by.x="ID", by.y="ID", all.y =T)
+  asubDF_eldf_prom_temp41_states_re <- asubDF_eldf_prom_temp41_states[,c(1,7,8)]
+  asubDF_eldf_prom_temp41_states_re_clustered <- plyr::ddply(asubDF_eldf_prom_temp41_states_re, .(feature_6), summarize,States = toString(states))
+  asubDF_eldf_prom_temp41_states_re_clustered$States <- gsub(", ",",", asubDF_eldf_prom_temp41_states_re_clustered$States)
+  asubDF_eldf_prom_temp41_states_re_clustered["uniqStates"] <- do.call(rbind.data.frame,lapply(strsplit(asubDF_eldf_prom_temp41_states_re_clustered$States, ","), function(x) paste0(unique(x),collapse = ",")))
+  assign(paste0("asubDF_eldf_promoter_n_state_clustered_",i),asubDF_eldf_prom_temp41_states_re_clustered)
+  write.table(na.omit(asubDF_eldf_prom_temp41_states_re_clustered),paste0("/mnt/home3/reid/av638/rnaseq/iva_lab_gencode/outfolder/asubDF_eldf_promoter_n_state_clustered_",i,".txt"), sep = "\t", quote = F, append = F, row.names = F, col.names = F)
+  
+  #Annotate histone marks
+  asubDF_eldf_prom_temp41_histonemarks <- merge(annotations_b_hg38_eldf_promoter_n_histonemarks_cov_df_sep, asubDF_eldf_prom_temp41, by.x="ID", by.y="ID", all.y =T)
+  asubDF_eldf_prom_temp41_histonemarks_re <- asubDF_eldf_prom_temp41_histonemarks[,c(1,7,8)]
+  asubDF_eldf_prom_temp41_histonemarks_re_clustered <- plyr::ddply(asubDF_eldf_prom_temp41_histonemarks_re, .(feature_6), summarize,histonemarks = toString(histonemarks))
+  asubDF_eldf_prom_temp41_histonemarks_re_clustered$histonemarks <- gsub(" ","", asubDF_eldf_prom_temp41_histonemarks_re_clustered$histonemarks)
+  asubDF_eldf_prom_temp41_histonemarks_re_clustered["uniqhistonemarks"] <- do.call(rbind.data.frame,lapply(strsplit(asubDF_eldf_prom_temp41_histonemarks_re_clustered$histonemarks, ","), function(x) paste0(unique(x),collapse = ",")))
+  assign(paste0("asubDF_eldf_promoter_n_histonemarks_clustered_",i),asubDF_eldf_prom_temp41_histonemarks_re_clustered)
+  write.table(na.omit(asubDF_eldf_prom_temp41_histonemarks_re_clustered),paste0("/mnt/home3/reid/av638/rnaseq/iva_lab_gencode/outfolder/asubDF_eldf_promoter_n_histonemarks_clustered_",i,".txt"), sep = "\t", quote = F, append = F, row.names = F, col.names = F)
+  
+  #Count States
+  asubDF_eldf_prom_temp41_states_re_clustered_count <- plyr::count(data.frame(states = unlist(strsplit(asubDF_eldf_prom_temp41_states_re_clustered$uniqStates,","))),"states")
+  asubDF_eldf_prom_temp41_states_re_clustered_count <- asubDF_eldf_prom_temp41_states_re_clustered_count[order(-asubDF_eldf_prom_temp41_states_re_clustered_count$freq),]
+  asubDF_eldf_prom_temp41_states_re_clustered_count$freq <- asubDF_eldf_prom_temp41_states_re_clustered_count$freq/dim(temp41_df)[1]
+  asubDF_eldf_prom_temp41_states_re_clustered_countbar <- ggplot(data=asubDF_eldf_prom_temp41_states_re_clustered_count, aes(x=states, y=freq)) +  geom_bar(stat="identity") +coord_flip() + theme_classic() + ggtitle(i)+ theme(plot.title = element_text(size = 4, face = "bold"))+ scale_y_continuous(limits = c(0, 1))
+  assign(paste0("asubDF_eldf_prom_n_states_re_clustered_",i,"_countbar"),asubDF_eldf_prom_temp41_states_re_clustered_countbar)
+  print(paste0("asubDF_eldf_prom_n_states_re_clustered_",i,"_countbar"))
+  plot_list_asubDF_eldf_prom_n_states[[paste0("asubDF_eldf_prom_n_states_re_clustered_",i,"_countbar")]] <- asubDF_eldf_prom_temp41_states_re_clustered_countbar
+  
+  #Count histone marks
+  asubDF_eldf_prom_temp41_histonemarks_re_clustered_count <- plyr::count(data.frame(histonemarks = unlist(strsplit(asubDF_eldf_prom_temp41_histonemarks_re_clustered$uniqhistonemarks,","))),"histonemarks")
+  asubDF_eldf_prom_temp41_histonemarks_re_clustered_count <-
+    asubDF_eldf_prom_temp41_histonemarks_re_clustered_count[order(-asubDF_eldf_prom_temp41_histonemarks_re_clustered_count$freq),]
+  asubDF_eldf_prom_temp41_histonemarks_re_clustered_count$freq <- asubDF_eldf_prom_temp41_histonemarks_re_clustered_count$freq/dim(temp41_df)[1]
+  asubDF_eldf_prom_temp41_histonemarks_re_clustered_countbar <-
+    ggplot(data=asubDF_eldf_prom_temp41_histonemarks_re_clustered_count, aes(x=histonemarks, y=freq)) + 
+    geom_bar(stat="identity") +coord_flip() + theme_classic() +
+    ggtitle(i)+ theme(plot.title = element_text(size = 4, face = "bold"))+ scale_y_continuous(limits = c(0, 1))
+  assign(paste0("asubDF_eldf_prom_n_histonemarks_re_clustered_",i,"_countbar"),asubDF_eldf_prom_temp41_histonemarks_re_clustered_countbar)
+  print(paste0("asubDF_eldf_prom_n_histonemarks_re_clustered_",i,"_countbar"))
+  plot_list_asubDF_eldf_prom_n_histonemarks[[paste0("asubDF_eldf_prom_n_histonemarks_re_clustered_",i,"_countbar")]] <- asubDF_eldf_prom_temp41_histonemarks_re_clustered_countbar
+}
+#plot
+pdf(file = "barplot_plot_list_asubDF_eldf_prom_n_states.pdf", height = 15, width = 8)
+ggpubr::ggarrange(plotlist = plot_list_asubDF_eldf_prom_n_states, ncol=4, nrow=6, common.legend = F, labels=NULL, vjust = 1,hjust=-0.5,font.label = list(size = 8, color = "black", face = "bold", family = NULL))
+dev.off()
+
+pdf(file = "barplot_plot_list_asubDF_eldf_prom_n_histonemarks.pdf", height = 15, width = 8)
+ggpubr::ggarrange(plotlist = plot_list_asubDF_eldf_prom_n_histonemarks, ncol=4, nrow=6, common.legend = F, labels=NULL, vjust = 1,hjust=-0.5,font.label = list(size = 8, color = "black", face = "bold", family = NULL))
+dev.off()
+```
+
+
+### ChiSquare Test for All genes promoter and chromatin state
+```{r Chisquare test}
+#test
+#all_vs_c1ko_up_promoter_n_state_cov_df <- rbind.data.frame(colSums(annotations_b_hg38_eldf_allpromoter_n_state_cov_df), colSums(c1ko_up_promoter_n_state_cov_df))
+
+
+for (k in names(UpsetInputList)){
+  k <- gsub("r_","",k)
+  print(k)
+  temp9 <- get(paste0(k,"_promoter_n_state_cov_df"))
+  all_vs_temp9 <- rbind.data.frame(colSums(annotations_b_hg38_eldf_allpromoter_n_state_cov_df), colSums(temp9))
+  colnames(all_vs_temp9) <- colnames(annotations_b_hg38_eldf_allpromoter_n_state_cov_df)
+  rownames(all_vs_temp9) <- c("all_genes",k)
+  assign(paste0("all_vs_",k,"_promoter_n_state_cov_df"),all_vs_temp9)
+}
+chisq.test(all_vs_c1ko_up_promoter_n_state_cov_df)
+chisq.test(all_vs_h1.4ko_up_promoter_n_state_cov_df)
+chisq.test(all_vs_mtf2ko_up_promoter_n_state_cov_df)
+chisq.test(all_vs_suz12ko_up_promoter_n_state_cov_df)
+chisq.test(all_vs_c1ko_down_promoter_n_state_cov_df)
+chisq.test(all_vs_h1.4ko_down_promoter_n_state_cov_df)
+chisq.test(all_vs_mtf2ko_down_promoter_n_state_cov_df)
+chisq.test(all_vs_suz12ko_down_promoter_n_state_cov_df)
+
+#Chisquare test along with posthoc correction
+chisq.posthoc.test::chisq.posthoc.test(all_vs_c1ko_up_promoter_n_state_cov_df)
+chisq.posthoc.test::chisq.posthoc.test(all_vs_h1.4ko_up_promoter_n_state_cov_df)
+chisq.posthoc.test::chisq.posthoc.test(all_vs_mtf2ko_up_promoter_n_state_cov_df)
+chisq.posthoc.test::chisq.posthoc.test(all_vs_suz12ko_up_promoter_n_state_cov_df)
+chisq.posthoc.test::chisq.posthoc.test(all_vs_c1ko_down_promoter_n_state_cov_df)
+chisq.posthoc.test::chisq.posthoc.test(all_vs_h1.4ko_down_promoter_n_state_cov_df)
+chisq.posthoc.test::chisq.posthoc.test(all_vs_mtf2ko_down_promoter_n_state_cov_df)
+chisq.posthoc.test::chisq.posthoc.test(all_vs_suz12ko_down_promoter_n_state_cov_df)
+```
+
+```{r Perform venn diagram manually}
+### Perform venn diagram manually
+code_for_venn <- expand.grid(rep(list(0:1),8))
+colnames(code_for_venn) <- names(UpsetInputList)
+# create a new column `x` with the three columns collapsed together
+
+temp50 <- code_for_venn
+for (names_i in names(code_for_venn)){
+  print(names_i)
+  temp50_names_i <- temp50[,names_i]
+  #print(head(temp50_names_i))
+  temp50[names_i] <- ifelse(temp50_names_i >= 1, names_i, 0)
+}
+
+temp50$code <- apply(temp50[ , colnames(temp50)] , 1 , paste , collapse = "_" )
+
+
+# Use the data matrix of all deregulated genes
+temp51 <- data.frame(subDF_all_degenes)
+for (names_j in colnames(subDF_all_degenes)){
+  print(names_j)
+  temp51_names_j <- temp51[,names_j]
+  temp51[names_j] <- ifelse(temp51_names_j >= 1, names_j, 0)
+}
+
+temp51$code <- apply(temp51[ , colnames(temp51)] , 1 , paste , collapse = "_" )
+```
+
+### GO analysis on  venn diagram
+```{r GO analysis on  venn diagram}
+temp52gostlist <- list()
+temp52list <- list()
+for (code in temp50$code){
+  print(code)
+  temp52 <- temp51[which(temp51$code == code),]
+  temp52list[[code]] <- temp52
+  #Run goProfiler
+  if(length(temp52$code) > 0){
+      temp52_gost <- gost(query= unlist(lapply(strsplit(rownames(temp52), "%"), function(x) x[2])), organism="hsapiens")
+      if(length(temp52_gost$result$query) > 0){
+        temp52_gost.sorted <- temp52_gost$result[order(temp52_gost$result$p_value),]
+        temp52_gost.sorted["term_name_collapse"] <- paste0(temp52_gost.sorted$term_id, "_",temp52_gost.sorted$source,"_" ,gsub(" ", ".", temp52_gost.sorted$term_name))
+        temp52gostlist[[code]] <- temp52_gost.sorted
+      }
+  }
+}
+assign("all_gost_res.sorted_combos",temp52gostlist)
+```
+
+
+### all upset combos Make a table from list of multiple dataframes based on values in specific columns
+```{r all Making a table for GO:BP terms...... (it needs a p-value filtering becuase I am talking only highly significant)}
+#--------------------#
+all_gost_res.sorted_combos_GOBP <- lapply(all_gost_res.sorted_combos, function(x) filter(x, source == "GO:BP" & p_value <= 1e-10))
+
+#Make the master list(unlist will mix the content of all objects and unique will keep the unique ones)
+all_gost_res.sorted_combos_GOBP_master <- unique(unlist(lapply(all_gost_res.sorted_combos_GOBP, function(x) x$term_name_collapse)))
+
+#Make the binary  list #lapply(X, FUN, …)
+all_gost_res.sorted_combos_GOBP_num <- lapply(all_gost_res.sorted_combos_GOBP, function(x) as.numeric(all_gost_res.sorted_combos_GOBP_master%in%x$term_name_collapse))
+
+#Bind the binary matrix
+all_gost_res.sorted_combos_GOBP_num <- do.call(cbind, all_gost_res.sorted_combos_GOBP_num)
+rownames(all_gost_res.sorted_combos_GOBP_num) <- all_gost_res.sorted_combos_GOBP_master
+all_gost_res.sorted_combos_GOBP_numdf <- data.frame(all_gost_res.sorted_combos_GOBP_num)
+#colSums(all_gost_res.sorted_combos_GOBP_num)
+#Checked: intersect(rownames(List_gost_res.sorted_allud_GOBP_numdf[which(List_gost_res.sorted_allud_GOBP_numdf$uniq_r_suz12ko_up == 1),]),rownames(all_gost_res.sorted_combos_GOBP_numdf[which(all_gost_res.sorted_combos_GOBP_numdf$X0_0_0_0_0_0_r_suz12ko_up_0 == 1),]))
+
+all_gost_res.sorted_combos_GOBP_numdf <- data.frame(colSums(all_gost_res.sorted_combos_GOBP_numdf))
+colnames(all_gost_res.sorted_combos_GOBP_numdf) <- "freq"
+all_gost_res.sorted_combos_GOBP_numdf <- data.frame(all_gost_res.sorted_combos_GOBP_numdf)
+all_gost_res.sorted_combos_GOBP_numdf$freq2 <- all_gost_res.sorted_combos_GOBP_numdf$freq
+all_gost_res.sorted_combos_GOBP_numdf <- all_gost_res.sorted_combos_GOBP_numdf[order(-all_gost_res.sorted_combos_GOBP_numdf$freq),]
+
+#As noticed no other combination got go term anootation, which I saw from Upset plot
+```
+
+### Get GO terms from GO BP terms all
+```{r Getting GO terms for GO:BP all.....}
+goterms_all_gost_res.sorted_combos_GOBP_numtemp <- c(rownames(all_gost_res.sorted_combos_GOBP_num))
+goterms_all_gost_res.sorted_combos_GOBP_num <- unique(unlist(lapply(strsplit(goterms_all_gost_res.sorted_combos_GOBP_numtemp, "_"), function(x) x[1])))
+write.table(data.frame(goterms_all_gost_res.sorted_combos_GOBP_num), "goterms_all_gost_res.sorted_combos_GOBP_num.txt", quote = F,append = F, row.names = F, col.names = F)
+```
+
+
+
+### Make a table from list of multiple dataframes based on values in specific columns
+```{r Making a table for GO:BP terms...... (it needs a p-value filtering becuase I am talking only highly significant)}
+#--------------------#
+List_gost_res.sorted_allud_GOBP5 <- lapply(List_gost_res.sorted_allud, function(x) filter(x, source == "GO:BP" & p_value <= 1e-5))
+
+#Make the master list(unlist will mix the content of all objects and unique will keep the unique ones)
+List_gost_res.sorted_allud_GOBP5_master <- unique(unlist(lapply(List_gost_res.sorted_allud_GOBP5, function(x) x$term_name_collapse)))
+
+#Make the binary  list #lapply(X, FUN, …)
+List_gost_res.sorted_allud_GOBP5_num <- lapply(List_gost_res.sorted_allud_GOBP5, function(x) as.numeric(List_gost_res.sorted_allud_GOBP5_master%in%x$term_name_collapse))
+
+#Bind the binary matrix
+List_gost_res.sorted_allud_GOBP5_num <- do.call(cbind, List_gost_res.sorted_allud_GOBP5_num)
+rownames(List_gost_res.sorted_allud_GOBP5_num) <- List_gost_res.sorted_allud_GOBP5_master
+List_gost_res.sorted_allud_GOBP5_numdf <- data.frame(List_gost_res.sorted_allud_GOBP5_num)
+#colSums(List_gost_res.sorted_allud_GOBP5_num)
+#Checked: dim(subDF_gost_res.sorted_allud[rownames(subDF_gost_res.sorted_allud) %like% "GO:BP", ] ) and lapply(List_gost_res.sorted_allud, function(x) filter(x, source == "GO:BP")) will give you the same dim
+```
+
+### Get GO terms from GO BP terms
+```{r Getting GO terms for GO:BP.....}
+goterms_List_gost_res.sorted_allud_GOBP5_numtemp <- c(rownames(List_gost_res.sorted_allud_GOBP5_num))
+goterms_List_gost_res.sorted_allud_GOBP5_num <- unique(unlist(lapply(strsplit(goterms_List_gost_res.sorted_allud_GOBP5_numtemp, "_"), function(x) x[1])))
+write.table(data.frame(goterms_List_gost_res.sorted_allud_GOBP5_num), "goterms_List_gost_res.sorted_allud_GOBP5_num.txt", quote = F,append = F, row.names = F, col.names = F)
+
+#We wanted to to get broad classification fo GO:Terms and the r version to get GoSlim IDs is not so useful.
+#So I uploaded my goterms data in cateGOrizer web version https://www.animalgenome.org/tools/catego/ ----> upload files --> right click save full output page ---> Rename  the file manually as GOBP5_Terms_Classification_Count_Results.html
+#grep "javascript:ReverseDisplay" GOBP5_Terms_Classification_Count_Results.html -B 1 > categoriser5_temp1_output.txt 
+#python rearranger_for_categrizor5_output.py > categoriser5_temp2_output.txt
+#Manually clean the <td> and all html content and save as categoriser5_temp3_output.txt
+#replace space by "." and remove unwanted elements biological function line, among columns use separator tab, In the end 6 columns will be left
+#Out of 170 GO:BP Terms used 167 were detected by Categorizer and 100 were assigned to specific biological process apart from biological function (which comprise highest) so it was removed as it was very general term
+categoriser5_output <- read.table("/mnt/home3/reid/av638/rnaseq/iva_lab_gencode/outfolder/categoriser5_temp3_output.txt", header=F, sep="\t")
+categoriser5_output_re <- categoriser5_output[,c(1,2,5)]
+#Adding bp with all GO Term
+categoriser5_output_re["col"] <- sapply(1:nrow(categoriser5_output_re), function(x) paste0(categoriser5_output_re$V1[x],"_",categoriser5_output_re$V2[x],"_" ,unlist(strsplit(categoriser5_output_re$V5[x], split = ".",  fixed = TRUE)), collapse = ' '))
+#At this point "." is present between GO:BP terms and each GO:BP terms linked with GO:Slim ID with "_", so when I unlist all content will become characters
+categoriser5_output_re1 <- data.frame(col = unlist(strsplit(categoriser5_output_re$col, " ")))
+categoriser5_output_re2 <- separate(data = categoriser5_output_re1, col = col, into = c("FunSlim","GoSlim", "GOTerm"), sep = "_")
+
+#Add GO:slim terms to binary matrix containing GOterms
+List_gost_res_sorted_allud_GOBP5_num2 <- data.frame(List_gost_res.sorted_allud_GOBP5_num)
+List_gost_res_sorted_allud_GOBP5_num2["col"] <- rownames(List_gost_res_sorted_allud_GOBP5_num2)
+List_gost_res_sorted_allud_GOBP5_num3 <- separate(List_gost_res_sorted_allud_GOBP5_num2, col = col, into = c("GOTerm", "GOBP5", "BioP"), sep = "_")
+List_gost_res_sorted_allud_GOBP5_num4 <- merge(List_gost_res_sorted_allud_GOBP5_num3, categoriser5_output_re2, by="GOTerm", all.y =T)
+rownames(List_gost_res_sorted_allud_GOBP5_num4) <- paste0(gsub(",","",List_gost_res_sorted_allud_GOBP5_num4$FunSlim), 
+                                                         "_", 
+                                                         List_gost_res_sorted_allud_GOBP5_num4$GOTerm,
+                                                         "_",
+                                                        List_gost_res_sorted_allud_GOBP5_num4$GoSlim)
+List_gost_res_sorted_allud_GOBP5_num4 <- List_gost_res_sorted_allud_GOBP5_num4[,-c(1,23:25)]
+#List_gost_res_sorted_allud_GOBP5_num4 <- List_gost_res_sorted_allud_GOBP5_num4[,-c(7)]
+#List_gost_res_sorted_allud_GOBP5_num4 <- List_gost_res_sorted_allud_GOBP5_num4[rowSums(List_gost_res_sorted_allud_GOBP5_num4[,c(1:20)])>0,]
+#List_gost_res_sorted_allud_GOBP5_num4 <- List_gost_res_sorted_allud_GOBP5_num4[which(rowSums(List_gost_res_sorted_allud_GOBP5_num4[,1:20]) > 0),]
+
+#Make  a unique row
+#List_gost_res_sorted_allud_GOBP5_num4
+#Take GOSlim term from categoriser output, rearrange and save categoriser5_goslim_goslimterm.txt
+categoriser5_goslim_goslimterm <- read.table("categoriser5_goslim_goslimterm.txt", header = F, stringsAsFactors = F)
+categoriser5_goslim_goslimterm <- categoriser5_goslim_goslimterm[,c(2,1)]
+colnames(categoriser5_goslim_goslimterm)  <- c("GoSlimName","GoSlim")
+List_gost_res_sorted_allud_GOBP5_num_goslim <- merge(List_gost_res_sorted_allud_GOBP5_num4, categoriser5_goslim_goslimterm,by="GoSlim", all.x=TRUE)
+List_gost_res_sorted_allud_GOBP5_num_goslim_cols <- do.call(paste, c(List_gost_res_sorted_allud_GOBP5_num_goslim[colnames(List_gost_res_sorted_allud_GOBP5_num_goslim)], sep = "_")) 
+List_gost_res_sorted_allud_GOBP5_num_goslim_cols <- data.frame(cols=unique(List_gost_res_sorted_allud_GOBP5_num_goslim_cols))
+List_gost_res_sorted_allud_GOBP5_num_goslim_colsdf <- data.frame(cSplit(List_gost_res_sorted_allud_GOBP5_num_goslim_cols, "cols", "_"))
+
+rownames(List_gost_res_sorted_allud_GOBP5_num_goslim_colsdf) <- paste0(List_gost_res_sorted_allud_GOBP5_num_goslim_colsdf$cols_01,"_", seq(1:length(List_gost_res_sorted_allud_GOBP5_num_goslim_colsdf$cols_01)))
+
+List_gost_res_sorted_allud_GOBP5_num_goslim_colsdf <- List_gost_res_sorted_allud_GOBP5_num_goslim_colsdf[,-1]
+colnames(List_gost_res_sorted_allud_GOBP5_num_goslim_colsdf) <- colnames(List_gost_res_sorted_allud_GOBP5_num_goslim[,c(2:23)])
+
+row_annotations_uniq5 <- data.frame(Annotations= List_gost_res_sorted_allud_GOBP5_num_goslim_colsdf$GoSlimName)
+rownames(row_annotations_uniq5) <- rownames(List_gost_res_sorted_allud_GOBP5_num_goslim_colsdf)
+```
+
+### Sort heatmap according to Upset plot content 
+```{r Sort heatmap according to Upset plot content.....}
+#Sort heatmap according to Upset plot content
+upset_plot_content_length <- list()
+for (z in c("uniq_r_c1ko_up","uniq_r_c1ko_down","uniq_r_h1.4ko_up","uniq_r_h1.4ko_down","uniq_r_mtf2ko_up","uniq_r_mtf2ko_down","uniq_r_suz12ko_up","uniq_r_suz12ko_down","uniq_r_mtf2ko_up_r_suz12ko_up","uniq_r_c1ko_up_r_h1.4ko_up_r_mtf2ko_up_r_suz12ko_up","uniq_r_c1ko_up_r_h1.4ko_up","uniq_r_c1ko_down_r_h1.4ko_down","uniq_r_c1ko_up_r_h1.4ko_up_r_suz12ko_up","uniq_r_c1ko_up_r_mtf2ko_up_r_suz12ko_up")){
+  print(length(get(z)))
+  upset_plot_content_length[[z]] <-  cbind.data.frame(z, length(get(z)))
+}
+upset_plot_content_length_re <- do.call(rbind.data.frame,upset_plot_content_length)
+colnames(upset_plot_content_length_re) <- c("combos","int")
+upset_plot_content_length_re <- upset_plot_content_length_re[order(-upset_plot_content_length_re$int),]
+List_gost_res_sorted_allud_GOBP5_num_goslim_colsdfre <- List_gost_res_sorted_allud_GOBP5_num_goslim_colsdf
+
+#'uniq_r_c1ko_down' is missing so I need to add with 0 counts
+List_gost_res_sorted_allud_GOBP5_num_goslim_colsdfre['uniq_r_c1ko_down'] <- 0 
+
+List_gost_res_sorted_allud_GOBP5_num_goslim_colsdfre_upset <- List_gost_res_sorted_allud_GOBP5_num_goslim_colsdfre %>%
+  select(upset_plot_content_length_re$combos,colnames(List_gost_res_sorted_allud_GOBP5_num_goslim_colsdfre[,c(1:8,22)]))
+
+#Prepare annotation color file using row_annotations
+row_color5_ano <- paste0(data.frame(unique(row_annotations_uniq5$Annotations))$unique.row_annotations_uniq5.Annotations.,"'='", c("orange","#ffff00","#000000","#a4c2f4","#b45f06","#ff00ff","#ecb4ec","#9C9C9C","#d0ecb4","#2fb41d","#77ddaa","#ff0000","blue","pink","#ccb79c","#63d863","#cd19f5","#19f5cd","#f5cd19","#19b0f5","#b0f519","#19e7f5","#f51978","#bc4077","#77ba40","#a240ba","#4640ba"), collapse = ",")
+
+row_color5_ano <- gsub(",",",\"",row_color5_ano)
+row_color5_ano <- gsub("'","\"",row_color5_ano)
+row_color5_ano <- gsub(",","\",",row_color5_ano)
+#copy paste in sublime and remove \ manually
+row_color5 <- list(Annotations=c("reproduction"="orange","nucleobase.nucleoside.nucleotide.and.nucleic.acid.metabolism"="#ffff00","DNA.metabolism"="#000000","protein.modification"="#a4c2f4","transport"="#b45f06","ion.transport"="#ff00ff","response.to.stress"="#ecb4ec","organelle.organization.and.biogenesis"="#9C9C9C","cytoskeleton.organization.and.biogenesis"="#d0ecb4","cell.cycle"="#2fb41d","cell.communication"="#77ddaa","signal.transduction"="#ff0000","cell-cell.signaling"="blue","development"="pink","behavior"="#ccb79c","metabolism"="#63d863","cell.death"="#cd19f5","cell.proliferation"="#19f5cd","biosynthesis"="#f5cd19","response.to.external.stimulus"="#19b0f5","morphogenesis"="#b0f519","response.to.endogenous.stimulus"="#19e7f5","embryonic.development"="#f51978","cell.organization.and.biogenesis"="#bc4077","protein.metabolism"="#77ba40","cell.differentiation"="#a240ba","growth"="#4640ba"))
+
+breaksListd <- seq(0, 1, by = 0.01)
+
+#1:22 becuase one more column was added uniq_r_c1ko_down'
+pheatmap_List_gost_res_sorted_allud_GOBP5_num_goslim_colsdfre_upset <- pheatmap(List_gost_res_sorted_allud_GOBP5_num_goslim_colsdfre_upset[,1:22],color = colorRampPalette(c("white", "white", "firebrick3"))(length(breaksListd)), breaks = breaksListd,fontsize = 7,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = F,clustering_method = "ward.D", border_color = "grey",show_rownames = F, show_colnames = T,  main= "GOBP5", annotation_colors = row_color5, annotation_row = row_annotations_uniq5)
+
+save_pheatmap_png <- function(x, filename, width=2400, height=2400, res = 150) {
+  png(filename, width = width, height = height, res = res)
+  grid::grid.newpage()
+  grid::grid.draw(x$gtable)
+  dev.off()
+}
+ 
+save_pheatmap_png(pheatmap_List_gost_res_sorted_allud_GOBP5_num_goslim_colsdfre_upset, "pheatmap_List_gost_res_sorted_allud_GOBP5_num_goslim_colsdfre_upset.png")
+
+```
+
+
+#Cross promoter and states
+```{r Cross promoter and states}
+#Obtained from Adam promoter_states.csv
+promoter_states_norm <- read.csv("/mnt/home3/reid/ajr236/projects/iva/GBP0012/promoter_state_overlap/promoter_states.csv", header = F, stringsAsFactors = F)
+rownames(promoter_states_norm) <- promoter_states_norm$V1
+colnames(promoter_states_norm) <- c("genes",paste0("state",seq(1:9)),"stater10")
+```
+
+
+
+### Extract different categories as in Upset plot and annotate w.r.t to and states norm
+```{r Explore combinations from Upset plot in terms of states norm}
+plot_list_asubDF_eldf_prom_norm_states <- list()
+upset_plot_combos <- c("r_c1ko_up","r_c1ko_down","r_h1.4ko_up","r_h1.4ko_down","r_mtf2ko_up","r_mtf2ko_down","r_suz12ko_up","r_suz12ko_down","uniq_r_c1ko_up","uniq_r_c1ko_down","uniq_r_h1.4ko_up","uniq_r_h1.4ko_down","uniq_r_mtf2ko_up","uniq_r_mtf2ko_down","uniq_r_suz12ko_up","uniq_r_suz12ko_down","uniq_r_mtf2ko_up_r_suz12ko_up","uniq_r_c1ko_up_r_h1.4ko_up_r_mtf2ko_up_r_suz12ko_up","uniq_r_c1ko_up_r_h1.4ko_up","uniq_r_c1ko_down_r_h1.4ko_down","uniq_r_c1ko_up_r_h1.4ko_up_r_suz12ko_up","uniq_r_c1ko_up_r_mtf2ko_up_r_suz12ko_up")
+for (i in upset_plot_combos){
+  #print(paste0("asubDF_eldf_prom_",i))
+  #Get data frame of different combinations
+  temp42_df <- data.frame("ENSgenes" = get(i))
+  temp42_df["genes"] <- do.call(rbind.data.frame,lapply(strsplit(temp42_df$ENSgenes, "%"), function(x) x[2]))
+  #Overlap states-promoters with gene symbols
+  asubDF_eldf_prom_norm_states_temp42 <- merge(promoter_states_norm, temp42_df, by.x= "genes", by.y= "genes", all.y=T)
+  rownames(asubDF_eldf_prom_norm_states_temp42) <- asubDF_eldf_prom_norm_states_temp42$ENSgenes
+  asubDF_eldf_prom_norm_states_temp42 <- asubDF_eldf_prom_norm_states_temp42[,c(2:11)]
+  #Remove NA i.e. genes with unidentified symbol in prom_norm_statester
+  asubDF_eldf_prom_norm_states_temp42 <- na.omit(asubDF_eldf_prom_norm_states_temp42)
+  assign(paste0("asubDF_eldf_prom_norm_states_",i),asubDF_eldf_prom_norm_states_temp42)
+  #Get proportion of States
+  asubDF_eldf_prom_norm_states_temp42_colsum <- data.frame(stateprop=colSums(asubDF_eldf_prom_norm_states_temp42))
+  asubDF_eldf_prom_norm_states_temp42_colsum["states"] <- rownames(asubDF_eldf_prom_norm_states_temp42_colsum)
+  assign(paste0("asubDF_eldf_prom_norm_states_colsum_",i),asubDF_eldf_prom_norm_states_temp42_colsum)
+  asubDF_eldf_prom_norm_states_temp42_colsum_bar <- ggplot(data=asubDF_eldf_prom_norm_states_temp42_colsum, aes(x=states, y=stateprop)) +  geom_bar(stat="identity") +coord_flip() + theme_classic() + ggtitle(i)+ theme(plot.title = element_text(size = 4, face = "bold"))
+  assign(paste0("asubDF_eldf_prom_norm_states_colsum_",i,"_bar"),asubDF_eldf_prom_norm_states_temp42_colsum_bar)
+  print(paste0("asubDF_eldf_prom_norm_states_colsum_",i,"_bar"))
+  plot_list_asubDF_eldf_prom_norm_states[[paste0("asubDF_eldf_prom_norm_states_colsum_",i,"_bar")]] <- asubDF_eldf_prom_norm_states_temp42_colsum_bar
+}
+#plot
+pdf(file = "barplot_plot_list_asubDF_eldf_prom_norm_states_colsum.pdf", height = 15, width = 8)
+ggpubr::ggarrange(plotlist = plot_list_asubDF_eldf_prom_norm_states, ncol=4, nrow=6, common.legend = F, labels=NULL, vjust = 1,hjust=-0.5,font.label = list(size = 14, color = "black", face = "bold", family = NULL))
+dev.off()
+#rm(list = ls(pattern = 'temp42'))
+```
+
+
+### ChiSquare Test for All genes promoter and chromatin state normalized
+```{r ChiSquare Test for All genes promoter and chromatin state normalized}
+#colSums(promoter_states_norm[,c(2:11)])
+all_vs_conditions_list_prom_norm_states <- list()
+chisq_list_prom_norm_states <- list()
+for (k in upset_plot_combos){
+  print(paste0("all_vs_",k,"_prom_norm_states"))
+  temp43 <- get(paste0("asubDF_eldf_prom_norm_states_",k))
+  all_vs_temp43 <- rbind.data.frame(colSums(promoter_states_norm[,c(2:11)]), colSums(temp43))
+  colnames(all_vs_temp43) <- colnames(promoter_states_norm[,c(2:11)])
+  rownames(all_vs_temp43) <- c("all_genes",k)
+  assign(paste0("all_vs_",k,"_prom_norm_states"),all_vs_temp43)
+  all_vs_conditions_list_prom_norm_states[[paste0("all_vs_",k,"_prom_norm_states")]] <- all_vs_temp43
+  chisq_list_prom_norm_states[[k]] <- chisq.posthoc.test::chisq.posthoc.test(all_vs_temp43)
+}
+chisq_list_prom_norm_states_df <- do.call(rbind.data.frame,chisq_list_prom_norm_states)
+rownames(chisq_list_prom_norm_states_df) <- paste0(rownames(chisq_list_prom_norm_states_df), "_",rep(c(1,2,3,"p_value"),22))
+chisq_list_prom_norm_states_df_pvalue <- chisq_list_prom_norm_states_df[rownames(chisq_list_prom_norm_states_df) %like% "p_value",]
+chisq_list_prom_norm_states_df_pvalue <- chisq_list_prom_norm_states_df_pvalue[,-c(1:2)]
+chisq_list_prom_norm_states_df_pvalue <- chisq_list_prom_norm_states_df_pvalue < 0.05
+chisq_list_prom_norm_states_df_pvalue <- t(chisq_list_prom_norm_states_df_pvalue)
+colnames(chisq_list_prom_norm_states_df_pvalue )<- gsub(".4_p_value","",colnames(chisq_list_prom_norm_states_df_pvalue))
+chisq_list_prom_norm_states_df_pvalue <- data.frame(chisq_list_prom_norm_states_df_pvalue)
+```
+
+### Barplot for all promter of genes an deregulated genes
+```{r Barplot for all promter of genes an deregulated genes}
+#chisq_list_prom_norm_states_df_pvalue
+all_vs_conditions_list_prom_norm_states_bar <- list()
+for (m in names(all_vs_conditions_list_prom_norm_states)){
+  print(m)
+  temp44df <-  data.frame(stack(as.matrix(apply(t(get(m)),2,function(x) x/sum(x)))))
+  temp44df["p_values"] <- chisq_list_prom_norm_states_df_pvalue %>% select(gsub("_prom_norm_states","",gsub("all_vs_","",m)))
+  temp44_barplot <-  ggplot(data=temp44df, aes(x=row, y=value, label=row, color=p_values, fill=col)) +
+  geom_bar(width = 0.5,stat="identity",  position=position_dodge(width = 0.7), size=0.3)+coord_flip()+
+  scale_fill_manual(values =(c("#5d46a3", "#d4b317"))) + scale_colour_manual(values =(c("grey", "red")))+theme_bw()+ ggtitle(m)+ theme(plot.title = element_text(size = 4, face = "bold"),legend.position = "none")
+  all_vs_conditions_list_prom_norm_states_bar[[paste0(m,"_bar")]] <- temp44_barplot
+}
+
+
+#plot
+pdf(file = "barplot_all_vs_conditions_list_prom_norm_states_bar.pdf", height = 15, width = 15)
+ggpubr::ggarrange(plotlist = all_vs_conditions_list_prom_norm_states_bar, ncol=4, nrow=6, common.legend = F, labels=NULL, vjust = 1,hjust=-0.5,font.label = list(size = 14, color = "black", face = "bold", family = NULL))
+dev.off()
+#rm(list = ls(pattern = 'temp44'))
+
+```
+
+### Heatmap promoter,states, deregulated genes, promoter norm
+```{r Heatmap promoter,states, deregulated genes, promoter norm}
+pheatmap_temp45_list <- list()
+for (k in names(UpsetInputList)){
+  print(paste0("asubDF_eldf_prom_norm_states_",k))
+  pheatmap_temp45 <- as.ggplot(pheatmap(get(paste0("asubDF_eldf_prom_norm_states_",k)),color = colorRampPalette(c("white", "firebrick3"))(length(breaksListd)), breaks = breaksListd,fontsize = 7,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = F,clustering_method = "ward.D", border_color = "grey",show_rownames = F, show_colnames = T,  main= k))
+  assign(paste0("pheatmap_asubDF_eldf_prom_norm_states_",k), pheatmap_temp45)
+  pheatmap_temp45_list[[k]] <- pheatmap_temp45
+}
+pdf(file = "pheatmap_asubDF_eldf_prom_norm_states_dereg.pdf", height = 7, width = 10)
+ggpubr::ggarrange(plotlist = pheatmap_temp45_list, ncol=4, nrow=2, common.legend = F, labels=NULL, vjust = 1,hjust=-0.5,font.label = list(size = 14, color = "black", face = "bold", family = NULL))
+dev.off()
+```
+
+
+#Rearrange chromatin states to promoters norm
+```{r Rearrange chromatin states to promoters norm, warning=FALSE}
+temp53 <- promoter_states_norm[,2:11]
+for (names_i in names(promoter_states_norm[,2:11])){
+  print(names_i)
+  temp53_names_i <- temp53[,names_i]
+  #print(head(temp53_names_i))
+  temp53[names_i] <- ifelse(temp53_names_i > 0, names_i, NA)
+}
+temp53["states"] <- apply(temp53[ , colnames(temp53)] , 1 , paste , collapse = "," )
+temp53$states <- gsub(",NA","",temp53$states)
+temp53$states <- gsub("NA,","",temp53$states)
+temp53["feature"] <- rownames(temp53)
+temp53 <- temp53[,-c(1:10)]
+promoter_states_norm_genes_re <- temp53
+write.table(promoter_states_norm_genes_re,"promoter_states_norm_genes_re.txt", col.names = T, row.names = F, sep = "\t", quote = F, append = F)
+rm(list = ls(pattern = 'temp53'))
+
+```
+
+#Classify genes into different groups based on states
+```{r Classify genes into different groups based on states}
+promoter_states_norm_genes_re_group1 <- promoter_states_norm_genes_re[which(promoter_states_norm_genes_re$states == "state1"),]
+promoter_states_norm_genes_re_group2_temp <- promoter_states_norm_genes_re[promoter_states_norm_genes_re$states %like% "state1",]
+promoter_states_norm_genes_re_group2 <- promoter_states_norm_genes_re_group2_temp[which(!promoter_states_norm_genes_re_group2_temp$states == "state1"),]
+promoter_states_norm_genes_re_group3 <- promoter_states_norm_genes_re[!promoter_states_norm_genes_re$states %like% "state1",]
+
+
+gost.subDF_all_degenes_1_pos_prom_n_states_group1 <- gost(query=intersect(subDF_all_degenes_1_pos$gene, promoter_states_norm_genes_re_group1$feature), organism="hsapiens")
+gostplot(gost.subDF_all_degenes_1_pos_prom_n_states_group1)
+barplot(c(length(rownames(promoter_states_norm_genes_re_group1)), length(rownames(promoter_states_norm_genes_re_group2)), length(rownames(promoter_states_norm_genes_re_group3))))
+
+```
+
+### End of Analysis
+```{r Session info}
+sessionInfo()
+```
+

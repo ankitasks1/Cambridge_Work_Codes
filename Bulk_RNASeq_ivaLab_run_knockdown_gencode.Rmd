@@ -1,0 +1,2129 @@
+---
+title: "Bulk RNA-Seq: Iva Lab Gencode"
+author: "Ankit Verma"
+date: '2022-07-11'
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+        
+---
+#iva_lab_gencode_run_knockdown
+##Prepare_sample_sheet for nextflow
+#ls *.fastq.gz -1 | awk -F'_' '{print $1}' | sort -k1,1 -u | awk '{print $1"\t"$1"_R1_001.fastq.gz""\t"$1"_R2_001.fastq.gz""\t""reverse"}' | awk '{gsub("-","_",$1);print $0}' | awk '{print $1","$2","$3","$4}' | sed '1s/^/sample,fastq_1,fastq_2,strandedness\n/' > samplesheet.csv
+
+
+#Gencode With gurdon.config and default of nf-core/rna-seq
+#/mnt/home3/slurm/slurm_sub.py nextflow -log myrun.log run nf-core/rnaseq  -r 3.8.1 -profile singularity --outdir outfolder --input samplesheet.csv --fasta GRCh38.p13.genome.fa --gtf GRCh38.gencode.v41.chr_patch_hapl_scaff.annotation.gtf -c /mnt/home3/nextflow/gurdon.config --save_reference --gencode
+
+###### data is paired-end -p is added
+###### featureCounts -t exon -g gene_id -s 2 -p -a /mnt/home3/reid/av638/rnaseq/run_knockdown/40-795972658/00_fastq/GRCh38.gencode.v41.chr_patch_hapl_scaff.annotation.gtf -T 12 -o ivalab_run_knockdown_star_featureCounts_gencode_grch38.txt H1_NTC_1.markdup.sorted.bam H1_NTC_2.markdup.sorted.bam H1_NTC_3.markdup.sorted.bam H1_shC_1.markdup.sorted.bam H1_shC_2.markdup.sorted.bam H1_shC_3.markdup.sorted.bam NTC_1.markdup.sorted.bam NTC_2.markdup.sorted.bam NTC_3.markdup.sorted.bam shC_1.markdup.sorted.bam shC_2.markdup.sorted.bam shC_3.markdup.sorted.bam shH_1.markdup.sorted.bam shH_2.markdup.sorted.bam shH_3.markdup.sorted.bam shS_1.markdup.sorted.bam shS_2.markdup.sorted.bam shS_3.markdup.sorted.bam
+
+
+###### data is paired-end -p is added basic version
+###### featureCounts -t exon -g gene_id -p -s 2 -a gencode.v41.basic.annotation.gtf -T 12 -o ivalab_basic_run_knockdown_star_featureCounts_gencode_grch38.txt H1_NTC_1.markdup.sorted.bam H1_NTC_2.markdup.sorted.bam H1_NTC_3.markdup.sorted.bam H1_shC_1.markdup.sorted.bam H1_shC_2.markdup.sorted.bam H1_shC_3.markdup.sorted.bam NTC_1.markdup.sorted.bam NTC_2.markdup.sorted.bam NTC_3.markdup.sorted.bam shC_1.markdup.sorted.bam shC_2.markdup.sorted.bam shC_3.markdup.sorted.bam shH_1.markdup.sorted.bam shH_2.markdup.sorted.bam shH_3.markdup.sorted.bam shS_1.markdup.sorted.bam shS_2.markdup.sorted.bam shS_3.markdup.sorted.bam
+
+
+###### data is paired-end -p is added multimap version
+###### featureCounts -t exon -g gene_id -p -s 2 -M -a /mnt/home3/reid/av638/rnaseq/run_knockdown/40-795972658/00_fastq/GRCh38.gencode.v41.chr_patch_hapl_scaff.annotation.gtf -T 12 -o ivalab_multimap_run_knockdown_star_featureCounts_gencode_grch38.txt H1_NTC_1.markdup.sorted.bam H1_NTC_2.markdup.sorted.bam H1_NTC_3.markdup.sorted.bam H1_shC_1.markdup.sorted.bam H1_shC_2.markdup.sorted.bam H1_shC_3.markdup.sorted.bam NTC_1.markdup.sorted.bam NTC_2.markdup.sorted.bam NTC_3.markdup.sorted.bam shC_1.markdup.sorted.bam shC_2.markdup.sorted.bam shC_3.markdup.sorted.bam shH_1.markdup.sorted.bam shH_2.markdup.sorted.bam shH_3.markdup.sorted.bam shS_1.markdup.sorted.bam shS_2.markdup.sorted.bam shS_3.markdup.sorted.bam
+
+```{r library, message=FALSE}
+load("/mnt/home3/reid/av638/rnaseq/run_knockdown/40-795972658/00_fastq/outfolder/star_salmon/deseq2_qc/deseq2.dds.RData")
+library(DESeq2)
+library(ggplot2)
+library(pheatmap)
+library(plyr)
+library(ggpubr)
+library(splitstackshape)
+library(gprofiler2)
+library(UpSetR)
+library(tidyr)
+library(org.Hs.eg.db)
+library(stringr)
+library(ggrepel)
+library(ChIPseeker)
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(stringi)
+```
+
+#NCBI gtf
+```{r NCBI gtf}
+# countdatancbi <- read.table("/mnt/home3/reid/av638/rnaseq/iva_lab_gencode/outfolder/star_salmon/ivalab_star_featureCounts_grch38.txt", header=TRUE, row.names=1)
+# # Remove first five columns (chr, start, end, strand, length)
+# countdatancbi <- countdatancbi[ ,6:ncol(countdatancbi)]
+# head(countdatancbi)
+# # Remove .bam or .sam from filenames
+# colnames(countdatancbi) <- gsub(".markdup.sorted.bam", "", colnames(countdatancbi))
+# countdatancbi <- countdatancbi[,c(4:6,7:9,10:12,1:3,13:15)]
+# dim(countdatancbi)
+# head(countdatancbi)
+# colSums(countdatancbi)
+```
+
+#gencode gtf
+```{r gencode gtf}
+# countdatagencode <- read.table("/mnt/home3/reid/av638/rnaseq/iva_lab_gencode/outfolder/star_salmon/ivalab_star_featureCounts_gencode_grch38.txt", header=TRUE, row.names=1)
+# # Remove first five columns (chr, start, end, strand, length)
+# countdatagencode <- countdatagencode[ ,6:ncol(countdatagencode)]
+# head(countdatagencode)
+# # Remove .bam or .sam from filenames
+# colnames(countdatagencode) <- gsub(".markdup.sorted.bam", "", colnames(countdatagencode))
+# countdatagencode <- countdatagencode[,c(4:6,7:9,10:12,1:3,13:15)]
+# dim(countdatagencode)
+# head(countdatagencode)
+# colSums(countdatagencode)
+```
+
+### Obtain un-normalized counts from dds (output of nextflow nf-core/rnaseq)
+
+```{r Obtaining un-normalized counts from dds}
+precountdata <- counts(dds, normalized=FALSE)
+head(precountdata)
+dim(precountdata)
+colSums(precountdata)
+precountdata <- data.frame(precountdata)
+precountdata["ensID"] <- rownames(precountdata)
+write.table(precountdata, "precountdata.txt", quote = F, append = F, sep="\t")
+colSums(precountdata[,1:18])
+```
+
+###python gencode_gtf_content_extractor.py --input GRCh38.gencode.v41.chr_patch_hapl_scaff.annotation.gtf --feature gene --output GRCh38_gtf.txt --species human 
+### grep chr gene_gencode_human_GRCh38_gtf.txt  > gene_gencode_human_GRCh38_gtf_onlychr.txt
+#Add ensID to gene symbol
+```{r Assign ensID to gene symbol}
+gene_gencode_human_GRCh38 <- read.table("/mnt/home3/reid/av638/rnaseq/run_knockdown/40-795972658/00_fastq/gene_gencode_human_GRCh38_gtf_onlychr.txt", header = F, stringsAsFactors = F)
+colnames(gene_gencode_human_GRCh38) <- c("chr","start", "end", "strand", "type", "ensID", "gene")
+gene_gencode_human_GRCh38["ens_gene"] <- paste0(gene_gencode_human_GRCh38$ensID, "%", gene_gencode_human_GRCh38$gene)
+```
+
+
+```{r Add ensID to gene symbol}
+#Get only those genes which has chromosome coordinates known
+countdata <- merge(precountdata, gene_gencode_human_GRCh38 ,by.x = "ensID", by.y ="ensID", all.y =T)
+rownames(countdata) <- countdata$ens_gene
+countdata <- countdata[,c(2:19)]
+```
+
+
+```{r Plot PCA for all the samples}
+plotPCA(as.matrix(countdata))
+```
+
+
+<!-- ```{r VST transform} -->
+<!-- vstNorm <- vst(dds) -->
+<!-- vstNorm_pca <- plotPCA(vstNorm, intgroup="sample", returnData=TRUE) -->
+<!-- vstNorm_pca["replicate"] <- rep(c("rep1","rep2","rep3"),6) -->
+<!-- vstNorm_pca["samplenames"] <- c(rep("CRAMP1KO",3),rep("H1.4KO",3),rep("shC",3),rep("NTCKO",3),rep("shH",3)) -->
+<!-- percentVarvstnorm <- round(100 * attr(vstNorm_pca, "percentVar")) -->
+<!-- ggplot(vstNorm_pca, aes(PC1, PC2, color=samplenames,shape=replicate)) + -->
+<!--   geom_point(size=3) + -->
+<!--   xlab(paste0("PC1: ",percentVarvstnorm[1],"% variance")) + -->
+<!--   ylab(paste0("PC2: ",percentVarvstnorm[2],"% variance")) +  -->
+<!--   coord_fixed()+ scale_color_manual(values = c(rep("#0073C2FF",1), rep("#CD534CFF",1), rep("#EFC000FF",1), rep("#868686FF",1), rep("#77DD77",1)))+ -->
+<!--   theme_bw()+theme(panel.grid.major = element_line(colour = "white"),panel.grid.minor = element_line(colour = "white"))+xlim(-20,57) + ylim(-25,27) -->
+<!-- ggsave("PCA_vstNormcounts.svg", width=5, height=6, units="in", dpi=96) -->
+<!-- ``` -->
+
+### Create coldata object
+
+```{r Creating coldata object}
+#Add condition column in coldata of dds
+coldata <- data.frame(samples = colData(dds)$sample, condition = c(rep("H1_NTC",3), rep("H1_shC",3), rep("NTC",3), rep("shC",3), rep("shH",3), rep("shS",3)), replicate = c(rep(c("r1","r2","r3"),6)))
+rownames(coldata) <- colData(dds)$sample
+head(coldata)
+coldata <- coldata[,c("condition", "replicate")]
+coldata$condition <- factor(coldata$condition)
+coldata$replicate <- factor(coldata$replicate)
+coldata["Sample"] <- rownames(coldata)
+```
+
+
+### Remove original dds from loadsapce as it might interfere with the new ddsO
+
+# ```{r Removing dds}
+# rm(dds)
+# ```
+
+<!-- ### As checked by PCA one sample is not good so I removed that , not run-->
+
+<!-- ```{r removing shH_6} -->
+<!-- #Remove shH from count matrix -->
+<!-- countData = as.matrix(countdata[,1:14]) -->
+<!-- head(countData) -->
+<!-- #Remove shH from coldata -->
+<!-- coldata <- coldata[-15,] -->
+<!-- ``` -->
+
+
+### Prepare count matrix
+```{r Preparing count matrix}
+countData = as.matrix(countdata[,1:18]) 
+#all(rownames(coldata) == colnames(countData)) #should print TRUE
+ddsO <- DESeqDataSetFromMatrix(countData =countData, colData = coldata, design = ~ condition)
+keep <- rowSums(counts(ddsO)) > 10
+ddsO <- ddsO[keep,]
+colData(ddsO)
+
+#Normalized separately:
+ddsONorm <- estimateSizeFactors(ddsO)
+sizeFactors(ddsONorm)
+#Export normalized counts
+ddsONormcounts <- counts(ddsONorm, normalized=TRUE)
+head(ddsONormcounts)
+dim(ddsONormcounts)
+write.table(ddsONormcounts, "ddsONormcounts.txt", sep="\t", quote=F, append = F,col.names=F)
+```
+
+```{r Plot PCA for all the samples new ddsO}
+plotPCA(as.matrix(ddsONormcounts))
+
+ggsave("PCA_ddsONormcounts.svg", width=5, height=7, units="in", dpi=96)
+ddsO_se <- SummarizedExperiment(log2(counts(ddsONorm, normalized=TRUE)),
+                           colData=colData(ddsONorm))
+# the call to DESeqTransform() is needed to
+# trigger our plotPCA method.
+ddsO_se_pca <- plotPCA(DESeqTransform(ddsO_se), returnData=TRUE)
+ddsO_se_pca["replicate"] <- c(rep(c("rep1","rep2","rep3"),6))
+ddsO_se_pca["samplenames"] <- ddsO_se_pca$condition
+percentVarddsO_se <- round(100 * attr(ddsO_se_pca, "percentVar"))
+ggplot(ddsO_se_pca, aes(PC1, PC2, color=samplenames,shape=replicate)) +
+  geom_point(size=3) +
+  xlab(paste0("PC1: ",percentVarddsO_se[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVarddsO_se[2],"% variance")) +
+  coord_fixed()+ scale_color_manual(values = c(rep("black",1), rep("#CD534CFF",1), rep("#EFC000FF",1), rep("#868686FF",1), rep("#77DD77",1), rep("#0073C2FF",1)))+
+  theme_bw()+theme(panel.grid.major = element_line(colour = "white"),panel.grid.minor = element_line(colour = "white")) +xlim(-50,60) + ylim(-25,25)
+ggsave("PCA_ddsO_secounts.svg", width=5, height=7, units="in", dpi=96)
+```
+
+
+
+### Perform clustering and show data by dendrogram
+```{r Clustering... showing dendrogram...}
+ddsONormcountsdd <- dist(scale(t(ddsONormcounts)), method = "euclidean")
+ddsONormcountshc <- hclust(ddsONormcountsdd, method = "ward.D")
+svg("Dendrogram_ddsONormcountshc.svg")
+plot(ddsONormcountshc)
+dev.off()
+```
+
+
+### Perform Differential Expression
+```{r Performing differential expression}
+
+#Normalization is the part of DESeq command: https://hbctraining.github.io/DGE_workshop/lessons/02_DGE_count_normalization.html
+ddsO <- DESeq(ddsO)
+#See size factors estimated by DESeq function: sizeFactors(dds)
+```
+```{r Plot PCA for all the samples filtered}
+#Vsd transform count
+#Since DESeq2 already run on dds0 blind=FALSE is added 
+vsdO <- DESeq2::vst(ddsO, blind = FALSE)
+head(assay(vsdO), 3)
+#vstONorm <- DESeq2::vst(ddsO)
+write.table(assay(vsdO), "vstONormcounts.txt", sep="\t", quote=F, append = F)
+vstONorm_pca <- plotPCA(vsdO, returnData=TRUE)
+vstONorm_pca["replicate"] <- c(rep(c("rep1","rep2","rep3"),6))
+vstONorm_pca["samplenames"] <- vstONorm_pca$condition
+percentVarvstOnorm <- round(100 * attr(vstONorm_pca, "percentVar"))
+ggplot(vstONorm_pca, aes(PC1, PC2, color=samplenames,shape=replicate)) +
+  geom_point(size=3) +
+  xlab(paste0("PC1: ",percentVarvstOnorm[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVarvstOnorm[2],"% variance")) +
+  coord_fixed()+ scale_color_manual(values = c(rep("black",1), rep("#CD534CFF",1), rep("#EFC000FF",1), rep("#868686FF",1), rep("#77DD77",1), rep("#0073C2FF",1)))+
+  theme_bw()+theme(panel.grid.major = element_line(colour = "white"),panel.grid.minor = element_line(colour = "white")) +xlim(-20,57) + ylim(-25,27)
+ggsave("PCA_vstONormcounts.svg", width=5, height=7, units="in", dpi=96)
+```
+
+
+```{r rlog transformations}
+rldO <- rlog(ddsO, blind=FALSE)
+head(assay(rldO), 3)
+#vstONorm <- DESeq2::vst(ddsO)
+write.table(assay(rldO), "rldONormcounts.txt", sep="\t", quote=F, append = F)
+```
+
+
+### Get Differentially Expressed Genes (DEGs) 
+
+```{r Getting differential expressed genes,message=FALSE}
+###manually tested
+#"H1_shC","H1_NTC" = 1185    7
+#"shC","NTC" = 1058    7
+#"shH","NTC" = 173   7
+#"shS","NTC" = 6033    7
+count  = 0
+for (temp1 in unique(coldata$condition)){
+  for (temp2 in unique(coldata$condition)){
+    if (temp1 != temp2){
+      count = count + 1
+      print(c(count,temp1,temp2))
+      temp1_2_results <- results(ddsO, contrast=c("condition",temp1,temp2))
+      #print(temp1_2_results)
+      temp1_2_results = temp1_2_results[order(rownames(temp1_2_results)),]
+      print(paste0("deseq2_res_",temp1, "_",temp2,"_","sorted"))
+      assign(paste0("deseq2_res_",temp1, "_",temp2,"_","sorted"), temp1_2_results)
+      write.table(temp1_2_results, paste0("deseq2_res_",temp1, "_",temp2,"_","sorted.txt"), sep="\t", quote = FALSE, append = FALSE)
+      temp1_2_results$threshold <- as.logical(temp1_2_results$padj < 0.05)
+      deseq2_temp1_2_results_0.05 <- temp1_2_results[which(temp1_2_results$threshold == TRUE),]
+      print(paste0("deseq2_res_",temp1, "_",temp2,"_","sorted_0.05"))
+      print(dim(deseq2_temp1_2_results_0.05))
+      assign(paste0("deseq2_res_",temp1, "_",temp2,"_","sorted_0.05"), deseq2_temp1_2_results_0.05)
+      write.table(deseq2_temp1_2_results_0.05, paste0("deseq2_res_",temp1, "_",temp2,"_","sorted_0.05.txt"), sep="\t", quote = FALSE, append = FALSE)
+
+      #Get up and downregulated genes
+      assign(paste0("deseq2_res_",temp1, "_",temp2,"_","sorted_0.05.up"), deseq2_temp1_2_results_0.05[which(deseq2_temp1_2_results_0.05$log2FoldChange > 1),])
+      assign(paste0("deseq2_res_",temp1, "_",temp2,"_","sorted_0.05.down"), deseq2_temp1_2_results_0.05[which(deseq2_temp1_2_results_0.05$log2FoldChange < -1),])
+      print(paste0("deseq2_res_",temp1, "_",temp2,"_","sorted_0.05.up"))
+      print(paste0("deseq2_res_",temp1, "_",temp2,"_","sorted_0.05.down"))
+    }
+  }
+}
+```
+
+#Assign gene coordinates to DE
+```{r Assign gene coordinates to DE}
+for (temp1 in unique(coldata$condition)){
+  for (temp2 in unique(coldata$condition)){
+    if (temp1 != temp2){
+      print(paste0(temp1,"_",temp2))
+      deseq2_temp1_2_results_0.05_df <- data.frame(get(paste0("deseq2_res_",temp1, "_",temp2,"_","sorted_0.05")))
+      deseq2_temp1_2_results_0.05_df["ens_gene"] <- rownames(deseq2_temp1_2_results_0.05_df)
+      print(dim(deseq2_temp1_2_results_0.05_df))
+      deseq2_temp1_2_results_0.05_df_gene <- merge(deseq2_temp1_2_results_0.05_df, gene_gencode_human_GRCh38, by ="ens_gene")
+      deseq2_temp1_2_results_0.05_df_gene <- deseq2_temp1_2_results_0.05_df_gene[,c(9,10,11,12,13,1:8)]
+      assign(paste0("deseq2_res_",temp1, "_",temp2,"_","sorted_0.05_gene"), deseq2_temp1_2_results_0.05_df_gene)
+      write.table(deseq2_temp1_2_results_0.05_df_gene, paste0("deseq2_res_",temp1,"_",temp2,"_","sorted_0.05_df_gene.txt"), sep="\t", quote = FALSE, append = FALSE, row.names = F, col.names = F)
+      system(paste0("sort -k1,1 -k2,2n " , "deseq2_res_",temp1,"_",temp2,"_","sorted_0.05_df_gene.txt", " > ", "deseq2_res_",temp1,"_",temp2,"_","sorted_0.05_df_gene_sorted.txt"))
+    }
+  }
+}
+```
+
+
+### MA Plot
+```{r plotting MA plot}
+temp3list = list()
+for (temp1 in unique(coldata$condition)){
+  for (temp2 in unique(coldata$condition)){
+    if (temp1 != temp2){
+      print(paste0(temp1, "_",temp2))
+      #plotMA_temp3 <- ggpubr::ggmaplot(get(paste0("deseq2_res_",temp1, "_",temp2,"_","sorted")), fdr = 0.05, fc = 1, size = 0.3,top =0, palette = c("#D22B2B", "#1465AC", "darkgray"),legend="top",font.main = "bold") + ylim(c(-20,20))+ xlim(c(0,20))
+      
+      plotMA_temp3 <- ggmaplot(get(paste0("deseq2_res_",temp1, "_",temp2,"_","sorted")),
+         fdr = 0.05, fc = 2, size = 0.3,
+         palette = c("#D22B2B", "#1465AC", "darkgray"),
+         genenames = as.vector(unlist(lapply(str_split(rownames(get(paste0("deseq2_res_",temp1,"_",temp2,"_","sorted"))), "%"), function(x) x[2]))),
+         legend = "top", top = 20,
+         font.label = c("bold", 5),
+         font.legend = "bold",
+         font.main = "bold",
+         ggtheme = ggplot2::theme_minimal())
+      temp3list[[paste0(temp1, "_",temp2)]]  <- plotMA_temp3
+    }
+  }
+}
+
+pdf(file = "maplot_plot_list_rnaseq_new.pdf", height = 30, width = 20)
+ggpubr::ggarrange(plotlist = temp3list, ncol=5, nrow=6, common.legend = F, labels=names(temp3list), vjust = 1,hjust=-0.5,font.label = list(size = 10, color = "black", face = "bold", family = NULL))
+dev.off()
+```
+
+
+### Volcano plot
+```{r Volcano plot}
+library(dplyr)
+temp4list = list()
+for (temp1 in unique(coldata$condition)){
+  for (temp2 in unique(coldata$condition)){
+    if (temp1 != temp2){
+      print(paste0(temp1, "_", temp2))
+      temp4df <- data.frame(get(paste0("deseq2_res_",temp1,"_",temp2,"_","sorted")))
+      temp4df <- temp4df %>% dplyr::mutate(Expression = case_when(log2FoldChange > 1 & padj < 0.05 ~ "Upregulated", log2FoldChange < -1 & padj < 0.05 ~ "Downregulated", TRUE ~ "Unchanged"))
+      temp4df$gene_symbol <- rownames(temp4df)
+      #manually tested 
+      #testdf <- data.frame(deseq2_res_temp1_temp2_sorted)
+      #testdf <- testdf %>% dplyr::mutate(Expression = case_when(log2FoldChange > 1 & padj < 0.05 ~ "Upregulated", log2FoldChange < -1 & padj < 0.05 ~ "Downregulated", TRUE ~ "Unchanged"))
+      #testdfup <- testdf[which(testdf$Expression == "Upregulated"),]
+      #testdfup[order(testdfup$padj , -testdfup$log2FoldChange),]
+      
+      assign(paste0(temp1, "_",temp2,"_top_de_genes"), bind_rows(
+        temp4df %>% dplyr::filter(Expression == 'Upregulated') %>%  arrange(padj, desc(abs(log2FoldChange))) %>% head(10),
+        temp4df %>% dplyr::filter(Expression == 'Downregulated') %>% arrange(padj, desc(abs(log2FoldChange))) %>% head(10)
+      ))
+      #Assemble top de genes and full data in one dataframe, required for proper labelling as tested
+      temp4_top_de_genes <- get(paste0(temp1, "_",temp2,"_top_de_genes"))
+      temp4_top_de_genes$gene_symbol <- rownames(temp4_top_de_genes)
+      print(temp4_top_de_genes$gene_symbol)
+      temp4_top_de_genes$label <- rownames(temp4_top_de_genes)
+      temp4_top_de_genes <- temp4_top_de_genes[,-c(1:7)]
+      temp4df_labelled <- merge(temp4df, temp4_top_de_genes, by="gene_symbol", all.x= TRUE)
+      
+      temp4df_labelled$labeldiff <- unlist(lapply(strsplit(temp4df_labelled$label, "%"), function(x) x[2]))
+      #print((paste0(temp1, "_",temp2,"_top_de_genes")))
+      #Now temp4df_labelled contain all required labelling
+      temp4df_p <- ggplot(temp4df_labelled, aes(log2FoldChange, -log(padj,10))) + geom_point(aes(color = Expression), size = 0.3) + xlab(expression("Log"[2]*"FC")) + ylab(expression("-Log"[10]*"padj")) +
+    scale_color_manual(values = c("dodgerblue3", "gray50", "firebrick3")) +
+    guides(colour = guide_legend(override.aes = list(size=1.5))) + theme_classic() +
+    theme(legend.position="none") + geom_text_repel(data = temp4df_labelled, mapping = aes(log2FoldChange,-log(padj,10), label = labeldiff, size = 0.4))
+      temp4list[[paste0(temp1, "_",temp2)]] <- temp4df_p
+    }
+  }
+}
+
+pdf(file = "volcano_plot_list_rnaseq_new.pdf", height = 50, width = 50)
+ggpubr::ggarrange(plotlist = temp4list, ncol=5, nrow=6, common.legend = F, labels=names(temp4list), vjust = 1,hjust=-0.5,font.label = list(size = 8, color = "black", face = "bold", family = NULL))
+dev.off()
+
+#While running warning of missing values will come for padj NA
+```
+
+### Functional analysis
+```{r Performing gProfiler2 analysis}
+#Note: p_value output of gost function is Hypergeometric p-value after correction for multiple testing, see https://biit.cs.ut.ee/gprofiler_beta/page/apis#gost_query_results
+# Prepare gostplot using gene symbol as character
+goterm_analysislist <- list()
+for (temp1 in unique(coldata$condition)){
+  for (temp2 in unique(coldata$condition)){
+    if (temp1 != temp2){
+      print(paste0("gost.",temp1,"_",temp2,"_0.05.up"))
+      assign(paste0("gost.",temp1,"_",temp2,"_0.05.up"),gost(query=unlist(lapply(strsplit(rownames(get(paste0("deseq2_res_",temp1,"_",temp2,"_","sorted_0.05.up"))), "%"), function(x) x[2])), organism="hsapiens"))
+      print(paste0("gost.",temp1, "_",temp2,"_0.05.down"))
+      assign(paste0("gost.",temp1,"_",temp2,"_0.05.down"),gost(query=unlist(lapply(strsplit(rownames(get(paste0("deseq2_res_",temp1, "_",temp2,"_","sorted_0.05.down"))), "%"), function(x) x[2])), organism="hsapiens"))
+      goterm_analysislist[[paste0("gost.",temp1,"_",temp2,"_0.05.up")]] <- paste0("gost.",temp1,"_",temp2,"_0.05.up")
+      goterm_analysislist[[paste0("gost.",temp1,"_",temp2,"_0.05.down")]] <- paste0("gost.",temp1,"_",temp2,"_0.05.down")
+    }
+  }
+}
+
+```
+
+
+### Bar plotting with GO:BP terms
+```{r Bar plotting with GO:BP terms}
+temp6list <- list()
+for (names in names(goterm_analysislist)){
+  gost.temp6 <- get(names)
+  gost.temp6.res.sorted <- gost.temp6$result[order(gost.temp6$result$p_value),]
+  gost.temp6.res.sorted["term_name_collapse"] <- paste0(gost.temp6.res.sorted$term_id,"_",gost.temp6.res.sorted$source,"_" ,gsub(" ", ".", gost.temp6.res.sorted$term_name))
+  gost.temp6.res.sorted_gobp <- gost.temp6.res.sorted[which(gost.temp6.res.sorted$source == "GO:BP"),]
+  gost.temp6.res.sorted_gobp_bar <- gost.temp6.res.sorted_gobp[,c(11,3)]
+  gost.temp6.res.sorted_gobp_bar_top <- head(gost.temp6.res.sorted_gobp_bar,10)
+  gost.temp6.res.sorted_gobp_bar_top$p_value <- -log10(gost.temp6.res.sorted_gobp_bar_top$p_value)
+  if((any(grepl('.up', names))) == T){
+    print(names)
+    plotBar_temp6 <- ggbarplot(gost.temp6.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#5d93c4ff", fill = "#5d93c4ff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = gsub("gost.","",names), lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+  temp6list[[names]] <- plotBar_temp6
+  }else{
+    print(names)
+    plotBar_temp6 <- ggbarplot(gost.temp6.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#e58e8eff", fill = "#e58e8eff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = gsub("gost.","",names), lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+  temp6list[[names]] <- plotBar_temp6
+  }
+}
+   
+
+pdf(file = "gobp_barlot_plot_list_rnaseq_new.pdf", height = 40, width = 60)
+ggpubr::ggarrange(plotlist = temp6list, ncol=10, nrow=12, common.legend = F, labels=names(temp6list), vjust = 1,hjust=-0.5,font.label = list(size = 8, color = "black", face = "bold", family = NULL))
+dev.off()
+```
+
+
+### Identify common DE genes: All combinations
+```{r Plotting common DE genes between different knockouts}
+temp7list = list()
+for (temp1 in unique(coldata$condition)){
+  for (temp2 in unique(coldata$condition)){
+    if (temp1 != temp2){
+      temp7list[[paste0(temp1, "_",temp2,".up")]] <- rownames(get(paste0("deseq2_res_",temp1, "_",temp2,"_","sorted_0.05.up")))
+      temp7list[[paste0(temp1, "_",temp2,".down")]] <- rownames(get(paste0("deseq2_res_",temp1, "_",temp2,"_","sorted_0.05.down")))
+    }
+  }
+}
+UpsetInputList <- temp7list
+svg("upset_plot_deregulatedgenes.svg", width=9, height=7)
+upset(fromList(UpsetInputList),nsets = 12, order.by = "freq",number.angles = 0, empty.intersections = "on", keep.order = TRUE)
+dev.off()
+```
+
+
+### Identify common DE genes: Four combinations
+```{r Plotting common DE genes between different knockouts}
+temp7alist = list()
+for (temp7a in c("H1_shC_H1_NTC", "shC_NTC", "shH_NTC", "shS_NTC")){
+  print(temp7a)
+  temp7alist[[paste0(temp7a,".up")]] <- rownames(get(paste0("deseq2_res_",temp7a,"_sorted_0.05.up")))
+  temp7alist[[paste0(temp7a,".down")]] <- rownames(get(paste0("deseq2_res_",temp7a,"_sorted_0.05.down")))
+}
+
+UpsetInputLista <- temp7alist
+svg("upset_plot_fourderegulatedgenes.svg", width=9, height=7)
+upset(fromList(UpsetInputLista),nsets = 8, order.by = "freq",number.angles = 0, empty.intersections = "on", keep.order = TRUE)
+dev.off()
+```
+
+
+
+### Let's plot a heatmap for combination of DEGs
+```{r Exracting data from upset plot}
+# create a master list
+master_list_all_degenes <- unique(as.character(unlist(UpsetInputList)))
+master_sublist_all_degenes <- lapply(UpsetInputList, function(x) as.numeric(master_list_all_degenes%in%x))
+
+#Bind the binary matrix
+subDF_all_degenes <- do.call(cbind, master_sublist_all_degenes)
+rownames(subDF_all_degenes) <- master_list_all_degenes
+breaksListd <- seq(0, 1, by = 0.01)
+pheatmap(subDF_all_degenes, color = colorRampPalette(c("white", "white", "firebrick3"))(length(breaksListd)))
+subDF_all_degenes_1 <- data.frame(subDF_all_degenes)
+subDF_all_degenes_1["genes"] <- rownames(subDF_all_degenes_1)
+subDF_all_degenes_1_pos <- merge(subDF_all_degenes_1, gene_gencode_human_GRCh38 ,by.x = "genes", by.y ="ens_gene", all.x =T)
+rownames(subDF_all_degenes_1_pos) <- subDF_all_degenes_1_pos$genes
+subDF_all_degenes_1_pos <- subDF_all_degenes_1_pos[,c(32:38,2:31)]
+summary(subDF_all_degenes_1_pos)
+#Check assigned
+length(subDF_all_degenes_1_pos$chr) == length(na.omit(subDF_all_degenes_1_pos$chr))
+#So all feature were assigned
+```
+
+
+### Calculate z-scores
+```{r Calculating z-scores ....}
+
+#Transform and scale
+z_TddsONormcounts= scale(t(ddsONormcounts), center = TRUE, scale = TRUE)
+z_ddsONormcounts <- data.frame(t(z_TddsONormcounts))
+write.table(z_ddsONormcounts, "z_ddsNormcounts.txt", sep="\t", quote=F, col.names=NA)
+head(z_ddsONormcounts)
+z_ddsONormcounts["genes"] <- rownames(z_ddsONormcounts)
+
+ddsONormcounts_1 <- data.frame(ddsONormcounts)
+ddsONormcounts_1["genes"] <- rownames(ddsONormcounts_1)
+
+ddsONormcounts_deg <- merge(subDF_all_degenes_1, ddsONormcounts_1, by.x="genes", by.y = "genes",all.x=T)
+rownames(ddsONormcounts_deg) <- ddsONormcounts_deg$genes
+dim(ddsONormcounts_deg)
+ddsONormcounts_deg <- ddsONormcounts_deg[,-c(1:34)]
+
+z_TddsONormcounts_deg = scale(t(ddsONormcounts_deg), center = TRUE, scale = TRUE)
+z_ddsONormcounts_deg <- data.frame(t(z_TddsONormcounts_deg))
+write.table(z_ddsONormcounts_deg, "z_ddsNormcounts_deg.txt", sep="\t", quote=F, col.names=NA)
+head(z_ddsONormcounts_deg,2)
+dim(z_ddsONormcounts_deg)
+breaksListn <- seq(-4, 4, by = 0.01)
+pheatmap(z_ddsONormcounts_deg,color = colorRampPalette(c("red", "black", "green"))(length(breaksListn)), breaks = breaksListn,fontsize = 6,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T)
+
+
+#Transform and scale
+z_TddsONormcounts_ne= scale(t(ddsONormcounts[,c(7:18)]), center = TRUE, scale = TRUE)
+z_ddsONormcounts_ne <- data.frame(t(z_TddsONormcounts_ne))
+write.table(z_ddsONormcounts_ne, "z_ddsNormcounts_ne.txt", sep="\t", quote=F, col.names=NA)
+head(z_ddsONormcounts_ne)
+z_ddsONormcounts_ne["genes"] <- rownames(z_ddsONormcounts_ne)
+
+#Transform and scale
+z_TddsONormcounts_oe= scale(t(ddsONormcounts[,c(1:6)]), center = TRUE, scale = TRUE)
+z_ddsONormcounts_oe <- data.frame(t(z_TddsONormcounts_oe))
+write.table(z_ddsONormcounts_oe, "z_ddsNormcounts_oe.txt", sep="\t", quote=F, col.names=NA)
+head(z_ddsONormcounts_oe)
+z_ddsONormcounts_oe["genes"] <- rownames(z_ddsONormcounts_oe)
+
+
+```
+
+
+### vst transformation
+```{r Performing vst transformation ....}
+vsdOcounts <- data.frame(assay(vsdO))
+vsdOcounts["genes"] <- rownames(vsdOcounts)
+```
+
+
+### Evaluate some gene of interest
+```{r Looking at some genes of interest}
+genesofinterest <- read.table("/mnt/home3/reid/av638/rnaseq/iva_lab_gencode/outfolder/genetolook.txt")
+colnames(genesofinterest) <- "symbol"
+vsdOcounts["symbol"] <- unlist(lapply(strsplit(vsdOcounts$genes, "%"), function(x) x[2]))
+vsdOcountsgeneint <- merge(vsdOcounts, genesofinterest, by="symbol", all.y=T)
+rownames(vsdOcountsgeneint) <- vsdOcountsgeneint$genes
+vsdOcountsgeneint <- vsdOcountsgeneint[,-1]
+
+z_ddsONormcounts["symbol"] <- unlist(lapply(strsplit(z_ddsONormcounts$genes, "%"), function(x) x[2]))
+z_ddsONormcountsgeneint <- merge(z_ddsONormcounts, genesofinterest, by="symbol", all.y=T)
+rownames(z_ddsONormcountsgeneint) <- z_ddsONormcountsgeneint$genes
+z_ddsONormcountsgeneint <- z_ddsONormcountsgeneint[,-1]
+breaksListn <- seq(-4, 4, by = 0.01)
+pheatmap(z_ddsONormcountsgeneint[,1:18],color = colorRampPalette(c("red", "black", "green"))(length(breaksListn)), breaks = breaksListn,fontsize = 10,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T)
+```
+
+#get histone genes
+```{r get histone genes}
+histone_genes_all_alias_variants <- read.table("histone_genes_all_alias_variants.txt", header = F, stringsAsFactors = F)
+colnames(histone_genes_all_alias_variants) <- c("histone", "knownness", "role")
+histone_genes_all_alias <- data.frame("gene_symbol" = histone_genes_all_alias_variants$histone)
+histone_genes_all_alias <- histone_genes_all_alias %>% distinct()
+
+histone_genes_all_matched <- merge(histone_genes_all_alias, gene_gencode_human_GRCh38 ,by.x = "gene_symbol", by.y ="gene", all.x =T)
+
+histone_genes_all_matched <- na.omit(histone_genes_all_matched)
+histone_genes_all_matched <- data.frame("gene_symbol"=histone_genes_all_matched$gene_symbol)
+
+histone_genes_all_variants_matched <- merge(histone_genes_all_alias_variants, gene_gencode_human_GRCh38 ,by.x = "histone", by.y ="gene", all.x =T)
+histone_genes_all_variants_matched <- na.omit(histone_genes_all_variants_matched)
+histone_genes_all_variants_matched <- histone_genes_all_variants_matched %>% distinct()
+rownames(histone_genes_all_variants_matched) <- histone_genes_all_variants_matched$histone
+histone_genes_all_variants_matched <- histone_genes_all_variants_matched[,c(1,2,3)]
+
+
+```
+
+#Explore genes of interest
+```{r Explore genes of interest}
+knockdown_of_interest <- c("H1_shC_H1_NTC", "shC_NTC", "shH_NTC", "shS_NTC")
+knockout_of_interest <- c("C1KO_R7508", "H1_4KO_R7508", "MTF2KO_R7508", "SUZ12KO_R7508")
+cutnrun_of_interest <- c("CRAMP1_NTC_IgG_NTC")
+
+for (temp8kd in knockdown_of_interest){
+  print(paste0("deseq2_res_",temp8kd,"_0.05"))
+}
+
+for (temp8ko in knockout_of_interest){
+  print(paste0("deseq2_res_",temp8ko,"_0.05"))
+  assign(paste0("deseq2_res_",temp8ko,"_0.05"),read.table(paste0("/mnt/home3/reid/av638/rnaseq/iva_lab_gencode/outfolder/", "deseq2_res_",temp8ko,"_0.05.txt")))
+  deseq2_temp8ko_results_0.05_df <- data.frame(get(paste0("deseq2_res_",temp8ko,"_0.05")))
+  deseq2_temp8ko_results_0.05_df["ens_gene"] <- rownames(deseq2_temp8ko_results_0.05_df)
+  deseq2_temp8ko_results_0.05_df_gene <- merge(deseq2_temp8ko_results_0.05_df, gene_gencode_human_GRCh38, by ="ens_gene")
+  deseq2_temp8ko_results_0.05_df_gene <- deseq2_temp8ko_results_0.05_df_gene[,c(9,10,11,12,13,1:8)]
+  assign(paste0("deseq2_res_",temp8ko,"_","sorted_0.05_gene"), deseq2_temp8ko_results_0.05_df_gene)
+  write.table(deseq2_temp8ko_results_0.05_df_gene, paste0("deseq2_res_",temp8ko,"_","sorted_0.05_df_gene.txt"), sep="\t", quote = FALSE, append = FALSE, row.names = F, col.names = F)
+  system(paste0("sort -k1,1 -k2,2n " , "deseq2_res_",temp8ko,"_","sorted_0.05_df_gene.txt", " > ", "deseq2_res_",temp8ko,"_","sorted_0.05_df_gene_sorted.txt"))
+}
+
+for (temp8cutnrun in cutnrun_of_interest){
+  print(temp8cutnrun)
+  system(paste0("grep chr /mnt/home3/reid/av638/cutnrun/iva_lab_gencode/outfolder/bwa/mergedLibrary/macs2/",temp8cutnrun, "_peaks.narrowPeak > CRAMP1_NTC_IgG_NTC_peaks.narrowPeak_chr.txt"))
+}
+```
+
+
+
+#Find deregulated histone genes in knockdown data
+```{r Find deregulated histone genes}
+dehistonekdlist <- list()
+histonekdlist <- list()
+for (temp1 in unique(coldata$condition)){
+  for (temp2 in unique(coldata$condition)){
+    if (temp1 != temp2){
+      print(paste0(temp1,"_",temp2))
+      temp9 <- data.frame(get(paste0("deseq2_res_",temp1, "_", temp2, "_sorted_0.05")))
+      temp9$gene_symbol <- lapply(strsplit(rownames(temp9), "%"), function(x) x[2])
+      histone_genes_all_matched_temp9 <- merge(histone_genes_all_matched, temp9, by="gene_symbol")
+      histone_genes_all_matched_temp9_id <- data.frame("gene_symbol"=histone_genes_all_matched_temp9$gene_symbol)
+      z_ddsONormcounts_temp9 <- merge(z_ddsONormcounts, histone_genes_all_matched_temp9_id, by.x="symbol", by.y="gene_symbol")
+      dehistonekdlist[[paste0("de_",temp1, "_", temp2)]] <- histone_genes_all_matched_temp9_id$gene_symbol
+      if (length(z_ddsONormcounts_temp9$symbol) > 2){
+        rownames(z_ddsONormcounts_temp9) <- z_ddsONormcounts_temp9$symbol
+        histonekdlist[[paste0("z_",temp1, "_", temp2)]] <- pheatmap(z_ddsONormcounts_temp9[,c(2:19)])
+      }
+    }
+  }
+}
+
+```
+
+
+#Find deregulated gene in KD data and assign to histone genes in KD data
+```{r Find deregulated histone genes}
+z_ddsNormcountskd <- read.table("/mnt/home3/reid/av638/rnaseq/run_knockdown/40-795972658/00_fastq/outfolder/z_ddsNormcounts.txt")
+z_ddsNormcountskd["symbol"] <- unlist(lapply(strsplit(rownames(z_ddsNormcountskd), "%"), function(x) x[2]))
+histonekdsublist <- list()
+histone_genes_all_deregekd_vec <- c()
+for (namesikd in c("H1_shC_H1_NTC", "shC_NTC", "shH_NTC", "shS_NTC")){
+  deregekd <- data.frame(get(paste0("deseq2_res_",namesikd, "_0.05")))
+  deregekd$gene_symbol <- lapply(strsplit(rownames(deregekd), "%"), function(x) x[2])
+  histone_genes_all_deregekd <- merge(histone_genes_all_matched, deregekd, by="gene_symbol")
+  histone_genes_all_deregekd_vec <- append(histone_genes_all_deregekd_vec, histone_genes_all_deregekd$gene_symbol)
+  histone_genes_all_deregekd_id <- data.frame("gene_symbol"=histone_genes_all_deregekd$gene_symbol)
+  z_ddsONormcountsko_temp9 <- merge(z_ddsNormcountskd, histone_genes_all_deregekd_id, by.x="symbol", by.y="gene_symbol")
+  
+  if (length(z_ddsONormcountsko_temp9$symbol) >= 2){
+    rownames(z_ddsONormcountsko_temp9) <- z_ddsONormcountsko_temp9$symbol
+    histonekdsublist[[paste0("z_",namesikd)]] <- pheatmap(z_ddsONormcountsko_temp9[,c(2:19)])
+  }
+}
+
+
+histone_genes_all_deregekd_df <- data.frame("gene_symbol" = unique(histone_genes_all_deregekd_vec))
+z_ddsNormcountskd_histone <- merge(z_ddsNormcountskd, histone_genes_all_deregekd_df, by.x="symbol", by.y="gene_symbol")
+rownames(z_ddsNormcountskd_histone) <- z_ddsNormcountskd_histone$symbol
+z_ddsNormcountskd_histone <- z_ddsNormcountskd_histone[,-1]
+
+annon_histone_genes_sub <- merge(histone_genes_all_variants_matched, z_ddsNormcountskd_histone, by.y="symbol", by.x="histone")
+rownames(annon_histone_genes_sub) <- annon_histone_genes_sub$histone
+annon_histone_genes_sub <- annon_histone_genes_sub[,c(2:3)]
+breaksListw <- seq(-4, 4, by = 0.01)
+pheatmap(z_ddsNormcountskd_histone,color = colorRampPalette(c("red", "black", "green"))(length(breaksListw)), breaks = breaksListw,fontsize = 6,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T, annotation_row = annon_histone_genes_sub)
+
+#z_ddsNormcountskd_histone.svg
+
+```
+
+#Find deregulated gene in ko data and assign to histone genes in ko data
+```{r Find deregulated histone genes ko}
+z_ddsNormcountsko <- read.table("/mnt/beegfs6/home3/reid/av638/rnaseq/iva_lab_gencode/outfolder/z_ddsNormcounts.txt")
+z_ddsNormcountsko["symbol"] <- unlist(lapply(strsplit(rownames(z_ddsNormcountsko), "%"), function(x) x[2]))
+dehistonekolist <- list()
+histonekolist <- list()
+histone_genes_all_deregeko_vec <- c()
+for (namesiko in c("C1KO_R7508", "H1_4KO_R7508", "MTF2KO_R7508", "SUZ12KO_R7508")){
+  deregeko <- data.frame(get(paste0("deseq2_res_",namesiko, "_0.05")))
+  deregeko$gene_symbol <- lapply(strsplit(rownames(deregeko), "%"), function(x) x[2])
+  histone_genes_all_deregeko <- merge(histone_genes_all_matched, deregeko, by="gene_symbol")
+  histone_genes_all_deregeko_vec <- append(histone_genes_all_deregeko_vec, histone_genes_all_deregeko$gene_symbol)
+  histone_genes_all_deregeko_id <- data.frame("gene_symbol"=histone_genes_all_deregeko$gene_symbol)
+  z_ddsONormcountsko_temp9 <- merge(z_ddsNormcountsko, histone_genes_all_deregeko_id, by.x="symbol", by.y="gene_symbol")
+  dehistonekolist[[paste0("de_",namesiko)]] <- histone_genes_all_deregeko_id$gene_symbol
+  if (length(z_ddsONormcountsko_temp9$symbol) >= 2){
+    rownames(z_ddsONormcountsko_temp9) <- z_ddsONormcountsko_temp9$symbol
+    histonekolist[[paste0("z_",namesiko)]] <- pheatmap(z_ddsONormcountsko_temp9[,c(2:15)])
+  }
+}
+
+
+histone_genes_all_deregeko_df <- data.frame("gene_symbol" = unique(histone_genes_all_deregeko_vec))
+z_ddsNormcountsko_histone <- merge(z_ddsNormcountsko, histone_genes_all_deregeko_df, by.x="symbol", by.y="gene_symbol")
+rownames(z_ddsNormcountsko_histone) <- z_ddsNormcountsko_histone$symbol
+z_ddsNormcountsko_histone <- z_ddsNormcountsko_histone[,-1]
+
+breaksListw <- seq(-4, 4, by = 0.01)
+pheatmap(z_ddsNormcountsko_histone,color = colorRampPalette(c("red", "black", "green"))(length(breaksListw)), breaks = breaksListw,fontsize = 6,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T)
+
+#save as z_ddsNormcountsko_histone.svg
+
+```
+
+
+#z_ddsONormcounts_ne_kd
+```{r z_ddsONormcounts_ne_kd}
+z_ddsONormcounts_ne_kd <- z_ddsONormcounts_ne
+z_ddsONormcounts_ne_kd["symbol"] <- unlist(lapply(strsplit(rownames(z_ddsONormcounts_ne_kd), "%"), function(x) x[2]))
+z_ddsONormcounts_ne_kd <- z_ddsONormcounts_ne_kd[,-13]
+z_ddsONormcounts_ne_kd_histone <- merge(z_ddsONormcounts_ne_kd, histone_genes_all_deregekd_df, by.x="symbol", by.y="gene_symbol")
+rownames(z_ddsONormcounts_ne_kd_histone) <- z_ddsONormcounts_ne_kd_histone$symbol
+z_ddsONormcounts_ne_kd_histone <- z_ddsONormcounts_ne_kd_histone[,-1]
+
+breaksListw <- seq(-4, 4, by = 0.01)
+pheatmap(z_ddsONormcounts_ne_kd_histone,color = colorRampPalette(c("red", "black", "green"))(length(breaksListw)), breaks = breaksListw,fontsize = 6,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T, annotation_row = annon_histone_genes_sub)
+
+
+#save as z_ddsONormcounts_ne_kd_histone.svg
+
+```
+
+
+
+#z_ddsONormcounts_oe_kd
+```{r z_ddsONormcounts_oe_kd}
+z_ddsONormcounts_oe_kd <- z_ddsONormcounts_oe
+z_ddsONormcounts_oe_kd["symbol"] <- unlist(lapply(strsplit(rownames(z_ddsONormcounts_oe_kd), "%"), function(x) x[2]))
+z_ddsONormcounts_oe_kd <- z_ddsONormcounts_oe_kd[,-7]
+z_ddsONormcounts_oe_kd_histone <- merge(z_ddsONormcounts_oe_kd, histone_genes_all_deregekd_df, by.x="symbol", by.y="gene_symbol")
+rownames(z_ddsONormcounts_oe_kd_histone) <- z_ddsONormcounts_oe_kd_histone$symbol
+z_ddsONormcounts_oe_kd_histone <- z_ddsONormcounts_oe_kd_histone[,-1]
+
+breaksListw <- seq(-4, 4, by = 0.01)
+pheatmap(z_ddsONormcounts_oe_kd_histone,color = colorRampPalette(c("red", "black", "green"))(length(breaksListw)), breaks = breaksListw,fontsize = 6,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T, annotation_row = annon_histone_genes_sub)
+
+
+#save as z_ddsONormcounts_oe_kd_histone.svg
+
+```
+
+
+#vstkd
+```{r vstkd}
+vstkd <- read.table("vstONormcounts.txt")
+vstkd["symbol"] <- unlist(lapply(strsplit(rownames(vstkd), "%"), function(x) x[2]))
+vstkd_histone <- merge(vstkd, histone_genes_all_deregekd_df, by.x="symbol", by.y="gene_symbol")
+rownames(vstkd_histone) <- vstkd_histone$symbol
+vstkd_histone <- vstkd_histone[,-1]
+
+breaksListk <- seq(0, 15, by = 0.01)
+pheatmap(vstkd_histone[,1:6],color = colorRampPalette(c("blue", "white", "orange"))(length(breaksListk)), breaks = breaksListk,fontsize = 6,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T, annotation_row = annon_histone_genes_sub)
+#save as vstkd_histone_oe.svg
+pheatmap(vstkd_histone[,7:18],color = colorRampPalette(c("blue", "white", "orange"))(length(breaksListk)), breaks = breaksListk,fontsize = 6,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T, annotation_row = annon_histone_genes_sub)
+#save as vstkd_histone_ne.svg
+
+
+```
+
+
+#rlogkd
+```{r rlogkd}
+rlogkd <- read.table("rldONormcounts.txt")
+rlogkd["symbol"] <- unlist(lapply(strsplit(rownames(rlogkd), "%"), function(x) x[2]))
+rlogkd_histone <- merge(rlogkd, histone_genes_all_deregekd_df, by.x="symbol", by.y="gene_symbol")
+rownames(rlogkd_histone) <- rlogkd_histone$symbol
+rlogkd_histone <- rlogkd_histone[,-1]
+
+breaksListd <- seq(0, 14, by = 0.01)
+pheatmap(rlogkd_histone,color = colorRampPalette(c("red", "black", "green"))(length(breaksListd)), breaks = breaksListd,fontsize = 6,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T)
+
+#save as rlogkd_histone.svg
+
+```
+
+#vst z-score
+```{r}
+z_vstkd_histone_oe= data.frame(t(scale(t(vstkd_histone[,1:6]), center = TRUE, scale = TRUE)))
+
+pheatmap(z_vstkd_histone_oe,color = colorRampPalette(c("red", "black", "green"))(length(breaksListw)), breaks = breaksListw,fontsize = 6,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T, annotation_row = annon_histone_genes_sub)
+#save as vstkd_histone_oe.svg
+pheatmap(vstkd_histone[,7:18],color = colorRampPalette(c("red", "black", "green"))(length(breaksListk)), breaks = breaksListk,fontsize = 6,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T, annotation_row = annon_histone_genes_sub)
+#save as vstkd_histone_ne.svg
+```
+
+
+#vstko
+```{r vstko}
+vstko <- read.table("/mnt/beegfs6/home3/reid/av638/rnaseq/iva_lab_gencode/outfolder/vstONormcounts.txt")
+vstko["symbol"] <- unlist(lapply(strsplit(rownames(vstko), "%"), function(x) x[2]))
+vstko_histone <- merge(vstko, histone_genes_all_deregekd_df, by.x="symbol", by.y="gene_symbol")
+rownames(vstko_histone) <- vstko_histone$symbol
+vstko_histone <- vstko_histone[,-1]
+
+breaksListk <- seq(0, 15, by = 0.01)
+pheatmap(vstko_histone,color = colorRampPalette(c("blue", "white", "orange"))(length(breaksListk)), breaks = breaksListk,fontsize = 6,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T, annotation_row = annon_histone_genes_sub)
+#save as vstko_histone.svg
+
+```
+
+
+<!-- #Distance plot -->
+<!-- ```{r Distance plot} -->
+<!-- system("bedtools closest -a deseq2_res_C1KO_R7508_sorted_0.05_df_gene_sorted.txt -b CRAMP1_NTC_IgG_NTC_peaks.narrowPeak_chr.txt -d > deseq2_res_C1KO_R7508_sorted_0.05_gene_CRAMP1_NTC_IgG_NTC.txt") -->
+
+<!-- deseq2_res_C1KO_R7508_sorted_0.05_gene_CRAMP1_NTC_IgG_NTC <- read.table("deseq2_res_C1KO_R7508_sorted_0.05_gene_CRAMP1_NTC_IgG_NTC.txt") -->
+
+<!-- colnames(deseq2_res_C1KO_R7508_sorted_0.05_gene_CRAMP1_NTC_IgG_NTC) <- c("chr", "start", "end", "strand", "type", "id", colnames(deseq2_res_C1KO_R7508_0.05), "peakchr", "peakstart", "peakend", "peakname", "peakscore", "peakstrand", "peaksig", "pval", "qval", "peakoff", "distance") -->
+
+<!-- deseq2_res_C1KO_R7508_sorted_0.05_gene_CRAMP1_NTC_IgG_NTC["gene_symbol"] <- unlist(lapply(strsplit(deseq2_res_C1KO_R7508_sorted_0.05_gene_CRAMP1_NTC_IgG_NTC$id, "%"), function(x) x[2])) -->
+
+<!-- C1KO_R7508_nonhistone_genes_all_alias <- data.frame("gene_symbol" = setdiff(deseq2_res_C1KO_R7508_sorted_0.05_gene_CRAMP1_NTC_IgG_NTC$gene_symbol, histone_genes_all_alias$gene_symbol)) -->
+
+<!-- deseq2_res_C1KO_R7508_sorted_0.05_gene_CRAMP1_NTC_IgG_NTC_histone <- merge(deseq2_res_C1KO_R7508_sorted_0.05_gene_CRAMP1_NTC_IgG_NTC, histone_genes_all_alias, by= "gene_symbol") -->
+
+<!-- deseq2_res_C1KO_R7508_sorted_0.05_gene_CRAMP1_NTC_IgG_NTC_nonhistone <- merge(deseq2_res_C1KO_R7508_sorted_0.05_gene_CRAMP1_NTC_IgG_NTC, C1KO_R7508_nonhistone_genes_all_alias, by= "gene_symbol") -->
+
+<!-- unique((deseq2_res_C1KO_R7508_sorted_0.05_gene_CRAMP1_NTC_IgG_NTC_histone[which(deseq2_res_C1KO_R7508_sorted_0.05_gene_CRAMP1_NTC_IgG_NTC_histone$distance <= 0),])$id) -->
+
+<!-- alldistancebinslist <- list() -->
+<!-- for (bins in c(0,10,100,1000,10000,100000, 1000000, 10000000, 100000000, 1000000000)){ -->
+<!--   alldistancebinslist[[as.character(bins)]] <- (length(unique((deseq2_res_C1KO_R7508_sorted_0.05_gene_CRAMP1_NTC_IgG_NTC[which(deseq2_res_C1KO_R7508_sorted_0.05_gene_CRAMP1_NTC_IgG_NTC$distance <= bins),])$id)) / length(unique(deseq2_res_C1KO_R7508_sorted_0.05_gene_CRAMP1_NTC_IgG_NTC$gene_symbol))) * 100 -->
+<!-- } -->
+
+<!-- histonedistancebinslist <- list() -->
+<!-- for (bins in c(0,10,100,1000,10000,100000, 1000000, 10000000, 100000000, 1000000000)){ -->
+<!--   histonedistancebinslist[[as.character(bins)]] <- (length(unique((deseq2_res_C1KO_R7508_sorted_0.05_gene_CRAMP1_NTC_IgG_NTC_histone[which(deseq2_res_C1KO_R7508_sorted_0.05_gene_CRAMP1_NTC_IgG_NTC_histone$distance <= bins),])$id)) / length(unique(deseq2_res_C1KO_R7508_sorted_0.05_gene_CRAMP1_NTC_IgG_NTC_histone$gene_symbol))) * 100 -->
+<!-- } -->
+
+
+<!-- nonhistonedistancebinslist <- list() -->
+<!-- for (bins in c(0,10,100,1000,10000,100000, 1000000, 10000000, 100000000, 1000000000)){ -->
+<!--   nonhistonedistancebinslist[[as.character(bins)]] <- (length(unique((deseq2_res_C1KO_R7508_sorted_0.05_gene_CRAMP1_NTC_IgG_NTC_nonhistone[which(deseq2_res_C1KO_R7508_sorted_0.05_gene_CRAMP1_NTC_IgG_NTC_nonhistone$distance <= bins),])$id)) / length(unique(deseq2_res_C1KO_R7508_sorted_0.05_gene_CRAMP1_NTC_IgG_NTC_nonhistone$gene_symbol))) * 100 -->
+<!-- } -->
+
+<!-- C1KO_R7508_CRAMP1_NTC_IgG_NTC_df <- data.frame(t(mapply(c, alldistancebinslist, histonedistancebinslist, nonhistonedistancebinslist))) -->
+<!-- colnames(C1KO_R7508_CRAMP1_NTC_IgG_NTC_df) <- c("All", "Histone", "Nonhistone") -->
+
+<!-- C1KO_R7508_CRAMP1_NTC_IgG_NTC_dfst <- data.frame(stack(as.matrix(C1KO_R7508_CRAMP1_NTC_IgG_NTC_df))) -->
+<!-- colnames(C1KO_R7508_CRAMP1_NTC_IgG_NTC_dfst) <- c("Distance", "Category", "Values") -->
+
+
+<!-- C1KO_R7508_CRAMP1_NTC_IgG_NTC_dfst["Distance"] <- seq(1,10) -->
+<!-- ggplot(data=C1KO_R7508_CRAMP1_NTC_IgG_NTC_dfst, aes(x=Distance, y=Values, group=Category)) + -->
+<!--   geom_line(aes(color=Category), size=1)+theme_classic() + -->
+<!--   scale_color_manual(values=c("black", "#00b050ff", "orange"))+  -->
+<!--   scale_y_continuous(breaks = seq(0, 100, by = 10)) +  -->
+<!--   scale_x_continuous(breaks = seq(0, 100, by = 1))+ -->
+<!--   labs(title="Distance plot", y ="% of Deregulated genes", x = "Distance from CRAMP1 NTC peaks (bp)")+ -->
+<!--   theme(axis.text.x = element_text(color="black", size=10, angle=315)) -->
+<!-- ggsave("C1KO_R7508_CRAMP1_NTC_IgG_NTC_dfst_distanceplot.svg", width=12, height=8, units="cm", dpi=96) -->
+
+<!-- ``` -->
+
+
+#Histone: Distance plot all
+```{r Distance plot all}
+temp13list <- list()
+Histone_genes_all_alias <-  histone_genes_all_matched
+for (temp10 in c("CRAMP1_NTC_IgG_NTC","CRAMP1_shSUZ12_IgG_shSUZ12","H14_shCRAMP1_IgG_shCRAMP1","H14_shSUZ12_IgG_shSUZ12","H1_NTC_IgG_NTC","H1_shCRAMP1_IgG_shCRAMP1","H1_shSUZ12_IgG_shSUZ12","MTF2_NTC_IgG_NTC","MTF2_shCRAMP1_IgG_shCRAMP1","MTF2_shSUZ12_IgG_shSUZ12","S12_shCRAMP1_IgG_shCRAMP1","SUZ12_NTC_IgG_NTC","V5-CRAMP1_V5_control")){
+  system(paste0("grep chr ", temp10, "_peaks.narrowPeak | sort -k1,1 -k2,2n > ",  temp10, "_peaks.narrowPeak_chr.txt"))
+  for (temp11 in c("H1_shC_H1_NTC", "shC_NTC", "shH_NTC", "shS_NTC", "C1KO_R7508", "H1_4KO_R7508", "MTF2KO_R7508", "SUZ12KO_R7508")){
+    system(paste0("bedtools closest -a deseq2_res_", temp11, "_sorted_0.05_df_gene_sorted.txt -b ", temp10, "_peaks.narrowPeak_chr.txt -d > deseq2_res_", temp11, "_sorted_0.05_gene_", temp10, ".txt"))
+    print(paste0("deseq2_res_", temp11, "_sorted_0.05_gene_", temp10, ".txt"))
+    temp12 <- read.table(paste0("deseq2_res_", temp11, "_sorted_0.05_gene_", temp10, ".txt"))
+    colnames(temp12) <- c("chr", "start", "end", "strand", "type", "id", colnames(get(paste0("deseq2_res_", temp11, "_0.05"))), "peakchr", "peakstart", "peakend", "peakname", "peakscore", "peakstrand", "peaksig", "pval", "qval", "peakoff", "distance")
+    temp12 <- temp12[which(temp12$distance >= 0),]
+    temp12["gene_symbol"] <- unlist(lapply(strsplit(temp12$id, "%"), function(x) x[2]))
+    nonHistone_genes_all_alias <- data.frame("gene_symbol" = setdiff(temp12$gene_symbol, Histone_genes_all_alias$gene_symbol))
+    temp12_Histone <- merge(temp12, Histone_genes_all_alias, by= "gene_symbol")
+    temp12_nonHistone <- merge(temp12, nonHistone_genes_all_alias, by= "gene_symbol")
+    print(length(temp12_Histone$gene_symbol))
+    if (length(unique(temp12_Histone$gene_symbol)) >= 10){
+      #Get all DE genes
+    alldistancebinslist <- list()
+    for (bins in c(0,10,100,1000,10000,100000, 1000000, 10000000, 100000000, 1000000000)){
+      alldistancebinslist[[paste0(temp10, "_" , temp11, "_",as.character(bins))]] <-
+        (length(unique((temp12[which(temp12$distance <= bins),])$id)) / length(unique(temp12$gene_symbol))) * 100
+    }
+    #Extract Histone genes
+    Histonedistancebinslist <- list()
+    for (bins in c(0,10,100,1000,10000,100000, 1000000, 10000000, 100000000, 1000000000)){
+      Histonedistancebinslist[[paste0(temp10, "_" , temp11, "_",as.character(bins))]] <-
+        (length(unique((temp12_Histone[which(temp12_Histone$distance <= bins),])$id)) / length(unique(temp12_Histone$gene_symbol))) * 100
+    }
+    #Extract non-Histone genes
+    nonHistonedistancebinslist <- list()
+    
+    for (bins in c(0,10,100,1000,10000,100000, 1000000, 10000000, 100000000, 1000000000)){
+      nonHistonedistancebinslist[[paste0(temp10, "_" , temp11, "_",as.character(bins))]] <- (length(unique((temp12_nonHistone[which(temp12_nonHistone$distance <= bins),])$id)) / length(unique(temp12_nonHistone$gene_symbol))) * 100
+    }
+    temp13 <- data.frame(t(mapply(c, alldistancebinslist, Histonedistancebinslist, nonHistonedistancebinslist)))
+    colnames(temp13) <-  c("All", "Histone", "NonHistone")
+    temp13dfst <- data.frame(stack(as.matrix(temp13)))
+    colnames(temp13dfst) <- c("Distance", "Category", "Values")
+    temp13dfst["Distance"] <- seq(1,10)
+    temp13dfstp <- ggplot(data=temp13dfst, aes(x=Distance, y=Values, group=Category)) +
+      geom_line(aes(color=Category), size=1)+theme_classic() +
+      scale_color_manual(values=c("black", "#00b050ff", "orange"))+
+      scale_y_continuous(breaks = seq(0, 100, by = 10)) +
+      scale_x_continuous(breaks = seq(0, 100, by = 1))+
+      labs(title="Distance plot", y ="% of Deregulated genes", paste0("Distance from peaks (bp)"))+
+      theme(axis.text.x = element_text(color="black", size=10, angle=315))
+    temp13list[[paste0("cutnrun_",temp10,"_rna_", temp11)]] <- temp13dfstp
+    }
+  }
+}
+
+pdf(file = "Histone_distance_plot_list_dfst_rnaseq_cutnrun.pdf", height = 20, width = 99)
+ggpubr::ggarrange(plotlist = temp13list, ncol=22, nrow=5, common.legend = F, labels=names(temp13list), vjust =1,hjust=-0.5,font.label = list(size = 4, color = "black", face = "plain", family = NULL))
+dev.off()
+
+```
+
+
+#get polycomb genes
+```{r get polycomb genes}
+SUZ12_NTC_IgG_NTC_peaks_gene <- fread("/mnt/home3/reid/av638/cutnrun/iva_lab_gencode/outfolder/bwa/mergedLibrary/macs2/SUZ12_NTC_IgG_NTC_peaks.narrowPeak_chr_gene.txt", header = T, stringsAsFactors = F)
+SUZ12_NTC_IgG_NTC_peaks_gene <- data.frame(SUZ12_NTC_IgG_NTC_peaks_gene)
+SUZ12_NTC_IgG_NTC_peaks_genefilt <- SUZ12_NTC_IgG_NTC_peaks_gene[which(SUZ12_NTC_IgG_NTC_peaks_gene$Distance.to.TSS < 1000),]
+SUZ12_NTC_IgG_NTC_peaks_genefilt <- SUZ12_NTC_IgG_NTC_peaks_genefilt[which(SUZ12_NTC_IgG_NTC_peaks_genefilt$Distance.to.TSS > -1000),]
+polycomb_genes_all_alias <- data.frame("gene_symbol"= unique(SUZ12_NTC_IgG_NTC_peaks_genefilt$Gene.Name))
+polycomb_genes_all_alias <- polycomb_genes_all_alias %>% distinct()
+```
+
+
+#Polycomb: Distance plot all
+```{r Distance plot all}
+temp13list <- list()
+Polycomb_genes_all_alias <- polycomb_genes_all_alias
+for (temp10 in c("CRAMP1_NTC_IgG_NTC","CRAMP1_shSUZ12_IgG_shSUZ12","H14_shCRAMP1_IgG_shCRAMP1","H14_shSUZ12_IgG_shSUZ12","H1_NTC_IgG_NTC","H1_shCRAMP1_IgG_shCRAMP1","H1_shSUZ12_IgG_shSUZ12","MTF2_NTC_IgG_NTC","MTF2_shCRAMP1_IgG_shCRAMP1","MTF2_shSUZ12_IgG_shSUZ12","S12_shCRAMP1_IgG_shCRAMP1","SUZ12_NTC_IgG_NTC","V5-CRAMP1_V5_control")){
+  system(paste0("grep chr ", temp10, "_peaks.narrowPeak | sort -k1,1 -k2,2n > ",  temp10, "_peaks.narrowPeak_chr.txt"))
+  for (temp11 in c("H1_shC_H1_NTC", "shC_NTC", "shH_NTC", "shS_NTC", "C1KO_R7508", "H1_4KO_R7508", "MTF2KO_R7508", "SUZ12KO_R7508")){
+    system(paste0("bedtools closest -a deseq2_res_", temp11, "_sorted_0.05_df_gene_sorted.txt -b ", temp10, "_peaks.narrowPeak_chr.txt -d > deseq2_res_", temp11, "_sorted_0.05_gene_", temp10, ".txt"))
+    temp12 <- read.table(paste0("deseq2_res_", temp11, "_sorted_0.05_gene_", temp10, ".txt"))
+    colnames(temp12) <- c("chr", "start", "end", "strand", "type", "id", colnames(get(paste0("deseq2_res_", temp11, "_0.05"))), "peakchr", "peakstart", "peakend", "peakname", "peakscore", "peakstrand", "peaksig", "pval", "qval", "peakoff", "distance")
+    temp12 <- temp12[which(temp12$distance >= 0),]
+    temp12["gene_symbol"] <- unlist(lapply(strsplit(temp12$id, "%"), function(x) x[2]))
+    nonPolycomb_genes_all_alias <- data.frame("gene_symbol" = setdiff(temp12$gene_symbol, Polycomb_genes_all_alias$gene_symbol))
+    temp12_Polycomb <- merge(temp12, Polycomb_genes_all_alias, by= "gene_symbol")
+    temp12_nonPolycomb <- merge(temp12, nonPolycomb_genes_all_alias, by= "gene_symbol")
+    #Get all DE genes
+     if (length(unique(temp12_Polycomb$gene_symbol)) >= 10){
+       alldistancebinslist <- list()
+    for (bins in c(0,10,100,1000,10000,100000, 1000000, 10000000, 100000000, 1000000000)){
+      alldistancebinslist[[paste0(temp10, "_" , temp11, "_",as.character(bins))]] <-
+        (length(unique((temp12[which(temp12$distance <= bins),])$id)) / length(unique(temp12$gene_symbol))) * 100
+    }
+    #Extract Polycomb genes
+    Polycombdistancebinslist <- list()
+    for (bins in c(0,10,100,1000,10000,100000, 1000000, 10000000, 100000000, 1000000000)){
+      Polycombdistancebinslist[[paste0(temp10, "_" , temp11, "_",as.character(bins))]] <-
+        (length(unique((temp12_Polycomb[which(temp12_Polycomb$distance <= bins),])$id)) / length(unique(temp12_Polycomb$gene_symbol))) * 100
+    }
+    #Extract non-Polycomb genes
+    nonPolycombdistancebinslist <- list()
+    
+    for (bins in c(0,10,100,1000,10000,100000, 1000000, 10000000, 100000000, 1000000000)){
+      nonPolycombdistancebinslist[[paste0(temp10, "_" , temp11, "_",as.character(bins))]] <- (length(unique((temp12_nonPolycomb[which(temp12_nonPolycomb$distance <= bins),])$id)) / length(unique(temp12_nonPolycomb$gene_symbol))) * 100
+    }
+    temp13 <- data.frame(t(mapply(c, alldistancebinslist, Polycombdistancebinslist, nonPolycombdistancebinslist)))
+    colnames(temp13) <-  c("All", "Polycomb", "NonPolycomb")
+    temp13dfst <- data.frame(stack(as.matrix(temp13)))
+    colnames(temp13dfst) <- c("Distance", "Category", "Values")
+    temp13dfst["Distance"] <- seq(1,10)
+    temp13dfstp <- ggplot(data=temp13dfst, aes(x=Distance, y=Values, group=Category)) +
+      geom_line(aes(color=Category), size=1)+theme_classic() +
+      scale_color_manual(values=c("black", "#00b050ff", "orange"))+
+      scale_y_continuous(breaks = seq(0, 100, by = 10)) +
+      scale_x_continuous(breaks = seq(0, 100, by = 1))+
+      labs(title="Distance plot", y ="% of Deregulated genes", x = paste0("Distance from peaks (bp)"))+
+      theme(axis.text.x = element_text(color="black", size=10, angle=315))
+    temp13list[[paste0("chip_",temp10,"_rna_", temp11)]] <- temp13dfstp
+     }
+  }
+}
+
+pdf(file = "Polycomb_distance_plot_list_dfst_rnaseq_cutnrun.pdf", height = 20, width = 99)
+ggpubr::ggarrange(plotlist = temp13list, ncol=22, nrow=5, common.legend = F, labels=names(temp13list), vjust =1,hjust=-0.5,font.label = list(size = 8, color = "black", face = "bold", family = NULL))
+dev.off()
+
+```
+
+
+
+### Write DE genes in excel
+```{r Write DE genes in excel}
+library(openxlsx)
+
+#create a named list of your dataframes. The list names will be the worksheet names.
+
+selecteddelist = list()
+for (selectedde in c("H1_shC_H1_NTC", "shC_NTC", "shH_NTC", "shS_NTC", "C1KO_R7508", "H1_4KO_R7508", "MTF2KO_R7508", "SUZ12KO_R7508")){
+  print(selectedde)
+  selectedetemp <- get(paste0("deseq2_res_",selectedde,"_0.05"))
+  selectedetemp <- data.frame(selectedetemp)
+  selectedetemp["geneid"] <- rownames(selectedetemp)
+  selectedetemp["gene"] <- unlist(lapply(strsplit(selectedetemp$geneid, "%"), function(x) x[2]))
+  selectedetemp["ensid"] <- unlist(lapply(strsplit(selectedetemp$geneid, "%"), function(x) x[1]))
+  selectedetemp <- selectedetemp[,c(9,10,1:7)]
+  selecteddelist[[selectedde]] <- selectedetemp
+}
+
+write.xlsx(selecteddelist, file = "selecteddelist.xlsx")
+```
+
+
+
+
+### Functional analysis
+```{r Performing gProfiler2 analysis}
+#Note: p_value output of gost function is Hypergeometric p-value after correction for multiple testing, see https://biit.cs.ut.ee/gprofiler_beta/page/apis#gost_query_results
+# Prepare gostplot using gene symbol as character
+goterm_analysislist_ko <- list()
+for (kotemp in c( "C1KO_R7508", "H1_4KO_R7508", "MTF2KO_R7508", "SUZ12KO_R7508")){
+  #Get up and downregulated genes
+  print(paste0("gost.",kotemp,"_0.05.up"))
+  assign(paste0("gost.",kotemp,"_0.05.up"),gost(query=unlist(lapply(strsplit(rownames(get(paste0("deseq2_res_",kotemp,"_0.05.up"))), "%"), function(x) x[2])), organism="hsapiens"))
+  print(paste0("gost.",kotemp,"_0.05.down"))
+  assign(paste0("gost.",kotemp,"_0.05.down"),gost(query=unlist(lapply(strsplit(rownames(get(paste0("deseq2_res_",kotemp,"_0.05.down"))), "%"), function(x) x[2])), organism="hsapiens"))
+  goterm_analysislist_ko[[paste0("gost.",kotemp,"_0.05.up")]] <- paste0("gost.",kotemp,"_0.05.up")
+  goterm_analysislist_ko[[paste0("gost.",kotemp,"_0.05.down")]] <- paste0("gost.",kotemp,"_0.05.down")
+}
+
+```
+
+### Write gost data out kd
+```{r Write gost data out kd}
+goterm_result_list_kd <- list()
+for (gotermdfnames in c("H1_shC_H1_NTC", "shC_NTC", "shH_NTC", "shS_NTC")){
+  print(gotermdfnames)
+  gotermdf <- get(paste0("gost.",gotermdfnames,"_0.05.up"))
+  gotermdfre <- gotermdf$result
+  goterm_result_list_kd[[paste0("gost.",gotermdfnames,"_0.05.up")]] <- gotermdfre
+  
+  gotermdf <- get(paste0("gost.",gotermdfnames,"_0.05.down"))
+  gotermdfre <- gotermdf$result
+  goterm_result_list_kd[[paste0("gost.",gotermdfnames,"_0.05.down")]] <- gotermdfre
+}
+
+write.xlsx(goterm_result_list_kd, file = "goterm_result_list_kd.xlsx")
+```
+
+
+
+### Write gost data out ko
+```{r Write gost data out kd}
+goterm_result_list_ko <- list()
+for (gotermdfnames in c( "C1KO_R7508", "H1_4KO_R7508", "MTF2KO_R7508", "SUZ12KO_R7508")){
+  print(gotermdfnames)
+  gotermdf <- get(paste0("gost.",gotermdfnames,"_0.05.up"))
+  gotermdfre <- gotermdf$result
+  goterm_result_list_ko[[paste0("gost.",gotermdfnames,"_0.05.up")]] <- gotermdfre
+  gotermdf <- get(paste0("gost.",gotermdfnames,"_0.05.down"))
+  gotermdfre <- gotermdf$result
+  goterm_result_list_ko[[paste0("gost.",gotermdfnames,"_0.05.down")]] <- gotermdfre
+}
+
+write.xlsx(goterm_result_list_ko, file = "goterm_result_list_ko.xlsx")
+```
+
+
+```{r Get combinations of deregulated genes}
+#Knockdown
+#up
+#H1_shC_H1_NTC.up vs shH_NTC.up
+H1_shC_H1_NTC.up_vs_shH_NTC.up <- unique(unlist(lapply(strsplit(intersect(UpsetInputList$H1_shC_H1_NTC.up, UpsetInputList$shH_NTC.up) , "%"), function(x) x[2])))
+#H1_shC_H1_NTC.up vs shS_NTC.up
+H1_shC_H1_NTC.up_vs_shS_NTC.up <- unique(unlist(lapply(strsplit(intersect(UpsetInputList$H1_shC_H1_NTC.up, UpsetInputList$shS_NTC.up) , "%"), function(x) x[2])))
+#H1_shC_H1_NTC.up vs shC_NTC.up
+H1_shC_H1_NTC.up_vs_shC_NTC.up <- unique(unlist(lapply(strsplit(intersect(UpsetInputList$H1_shC_H1_NTC.up, UpsetInputList$shC_NTC.up) , "%"), function(x) x[2])))
+#shS_NTC.up vs shC_NTC.up
+shS_NTC.up_vs_shC_NTC.up <- unique(unlist(lapply(strsplit(intersect(UpsetInputList$shS_NTC.up, UpsetInputList$shC_NTC.up) , "%"), function(x) x[2])))
+#shH_NTC.up vs shC_NTC.up
+shH_NTC.up_vs_shC_NTC.up <- unique(unlist(lapply(strsplit(intersect(UpsetInputList$shH_NTC.up, UpsetInputList$shC_NTC.up) , "%"), function(x) x[2])))
+
+#down
+#H1_shC_H1_NTC.down vs shH_NTC.down
+H1_shC_H1_NTC.down_vs_shH_NTC.down <- unique(unlist(lapply(strsplit(intersect(UpsetInputList$H1_shC_H1_NTC.down, UpsetInputList$shH_NTC.down) , "%"), function(x) x[2])))
+#H1_shC_H1_NTC.down vs shS_NTC.down
+H1_shC_H1_NTC.down_vs_shS_NTC.down <- unique(unlist(lapply(strsplit(intersect(UpsetInputList$H1_shC_H1_NTC.down, UpsetInputList$shS_NTC.down) , "%"), function(x) x[2])))
+#H1_shC_H1_NTC.down vs shC_NTC.down
+H1_shC_H1_NTC.down_vs_shC_NTC.down <- unique(unlist(lapply(strsplit(intersect(UpsetInputList$H1_shC_H1_NTC.down, UpsetInputList$shC_NTC.down) , "%"), function(x) x[2])))
+#shS_NTC.down vs shC_NTC.down
+shS_NTC.down_vs_shC_NTC.down <- unique(unlist(lapply(strsplit(intersect(UpsetInputList$shS_NTC.down, UpsetInputList$shC_NTC.down) , "%"), function(x) x[2])))
+#shH_NTC.down vs shC_NTC.down
+shH_NTC.down_vs_shC_NTC.down <- unique(unlist(lapply(strsplit(intersect(UpsetInputList$shH_NTC.down, UpsetInputList$shC_NTC.down) , "%"), function(x) x[2])))
+
+```
+
+
+### Write gost data out kd
+```{r Write gost data out kd}
+goterm_combo_result_list_kd <- list()
+for (gotermCombinKDnames in c("H1_shC_H1_NTC.up_vs_shH_NTC.up", "H1_shC_H1_NTC.up_vs_shS_NTC.up", "H1_shC_H1_NTC.up_vs_shC_NTC.up", "shS_NTC.up_vs_shC_NTC.up", "shH_NTC.up_vs_shC_NTC.up","H1_shC_H1_NTC.down_vs_shH_NTC.down", "H1_shC_H1_NTC.down_vs_shS_NTC.down", "H1_shC_H1_NTC.down_vs_shC_NTC.down", "shS_NTC.down_vs_shC_NTC.down", "shH_NTC.down_vs_shC_NTC.down")){
+  print(paste0("gost.",gotermCombinKDnames))
+  assign(paste0("gost.",gotermCombinKDnames),gost(query=get(gotermCombinKDnames), organism="hsapiens"))
+  gotermCombinKDdf <- get(paste0("gost.",gotermCombinKDnames))
+  gotermCombinKDdfre <- gotermCombinKDdf$result
+  goterm_combo_result_list_kd[[gsub("_vs_","_",gotermCombinKDnames)]] <- gotermCombinKDdfre
+}
+
+write.xlsx(goterm_combo_result_list_kd, file = "goterm_combo_result_list_kd.xlsx")
+```
+
+#----------------------------------------------------------------------------------------------------------#
+#----------------------------------------------------------------------------------------------------------#
+#----------------------------------------------------------------------------------------------------------#
+###  GetIndividual counts
+```{r Individual counts}
+H1_shC_H1_NTC_countdata <- countdata[,c(1:6)]
+shC_NTC_countdata <- countdata[,c(7:12)]
+shH_NTC_countdata <- countdata[,c(7:9,13:15)]
+shS_NTC_countdata <- countdata[,c(7:9,16:18)]
+```
+
+## Individual H1_shC_H1_NTC
+### Plot PCA for some  samples
+```{r Plot PCA for some  samples}
+plotPCA(as.matrix(H1_shC_H1_NTC_countdata))
+```
+
+
+### Create sample-specific coldata object
+```{r Creating coldata object}
+H1_shC_H1_NTC_coldata <- data.frame(samples = colData(dds)$sample[1:6], condition = c(rep("H1_NTC",3), rep("H1_shC",3)), replicate = c(rep(c("r1","r2","r3"),2)))
+rownames(H1_shC_H1_NTC_coldata) <- colData(dds)$sample[1:6]
+H1_shC_H1_NTC_coldata <- H1_shC_H1_NTC_coldata[,c("condition", "replicate")]
+H1_shC_H1_NTC_coldata$condition <- factor(H1_shC_H1_NTC_coldata$condition)
+H1_shC_H1_NTC_coldata$replicate <- factor(H1_shC_H1_NTC_coldata$replicate)
+H1_shC_H1_NTC_coldata["Sample"] <- rownames(H1_shC_H1_NTC_coldata)
+```
+
+### Prepare count matrix
+```{r Preparing count matrix}
+H1_shC_H1_NTC_countdata = as.matrix(H1_shC_H1_NTC_countdata) 
+#all(rownames(coldata) == colnames(H1_shC_H1_NTC_countdata)) #should print TRUE
+H1_shC_H1_NTC_ddsO <- DESeqDataSetFromMatrix(countData = H1_shC_H1_NTC_countdata, colData = H1_shC_H1_NTC_coldata, design = ~ condition)
+H1_shC_H1_NTC_keep <- rowSums(counts(H1_shC_H1_NTC_ddsO)) > 10
+H1_shC_H1_NTC_ddsO <- H1_shC_H1_NTC_ddsO[H1_shC_H1_NTC_keep,]
+```
+
+### Perform sample-specific Differential Expression
+```{r Performing differential expression}
+
+#Normalization is the part of DESeq command: https://hbctraining.github.io/DGE_workshop/lessons/02_DGE_count_normalization.html
+H1_shC_H1_NTC_ddsO <- DESeq(H1_shC_H1_NTC_ddsO)
+#See size factors estimated by DESeq function: sizeFactors(dds)
+```
+
+### Get Differentially Expressed Genes (DEGs) 
+```{r Getting differential expressed genes,message=FALSE}
+count  = 0
+for (temp1 in unique(H1_shC_H1_NTC_coldata$condition)){
+  for (temp2 in unique(H1_shC_H1_NTC_coldata$condition)){
+    if (temp1 != temp2){
+      count = count + 1
+      print(c(count,temp1,temp2))
+      temp1_2_results <- results(H1_shC_H1_NTC_ddsO, contrast=c("condition",temp1,temp2))
+      #print(temp1_2_results)
+      temp1_2_results = temp1_2_results[order(rownames(temp1_2_results)),]
+      print(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted"))
+      assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted"), temp1_2_results)
+      write.table(temp1_2_results, paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted.txt"), sep="\t", quote = FALSE, append = FALSE)
+      temp1_2_results$threshold <- as.logical(temp1_2_results$padj < 0.05)
+      deseq2_pairwise_temp1_2_results_0.05 <- temp1_2_results[which(temp1_2_results$threshold == TRUE),]
+      print(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05"))
+      print(paste0("",dim(deseq2_pairwise_temp1_2_results_0.05)))
+      assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05"), deseq2_pairwise_temp1_2_results_0.05)
+      write.table(deseq2_pairwise_temp1_2_results_0.05, paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.txt"), sep="\t", quote = FALSE, append = FALSE)
+
+      #Get up and downregulated genes
+      assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.up"), deseq2_pairwise_temp1_2_results_0.05[which(deseq2_pairwise_temp1_2_results_0.05$log2FoldChange > 1),])
+      assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.down"), deseq2_pairwise_temp1_2_results_0.05[which(deseq2_pairwise_temp1_2_results_0.05$log2FoldChange < -1),])
+      print(dim(get(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.up"))))
+      print(dim(get(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.down"))))
+    }
+  }
+}
+```
+
+### Normamalize H1_shC_H1_NTC_ddsO
+```{r Normamalize H1_shC_H1_NTC_ddsO}
+#Normalized separately:
+H1_shC_H1_NTC_ddsONorm <- estimateSizeFactors(H1_shC_H1_NTC_ddsO)
+sizeFactors(H1_shC_H1_NTC_ddsONorm)
+#Export normalized counts
+H1_shC_H1_NTC_ddsONormcounts <- counts(H1_shC_H1_NTC_ddsONorm, normalized=TRUE)
+head(H1_shC_H1_NTC_ddsONormcounts)
+dim(H1_shC_H1_NTC_ddsONormcounts)
+write.table(H1_shC_H1_NTC_ddsONormcounts, "H1_shC_H1_NTC_ddsONormcounts.txt", sep="\t", quote=F, append = F,col.names=F)
+```
+
+### Plot PCA for all the samples new H1_shC_H1_NTC_ddsO
+```{r Plot PCA for all the samples new H1_shC_H1_NTC_ddsO}
+plotPCA(as.matrix(H1_shC_H1_NTC_ddsONormcounts))
+
+ggsave("PCA_H1_shC_H1_NTC_ddsONormcounts.svg", width=5, height=7, units="in", dpi=96)
+H1_shC_H1_NTC_ddsO_se <- SummarizedExperiment(log2(counts(H1_shC_H1_NTC_ddsONorm, normalized=TRUE)),
+                           colData=colData(H1_shC_H1_NTC_ddsONorm))
+# the call to DESeqTransform() is needed to
+# trigger our plotPCA method.
+H1_shC_H1_NTC_ddsO_se_pca <- plotPCA(DESeqTransform(H1_shC_H1_NTC_ddsO_se), returnData=TRUE)
+H1_shC_H1_NTC_ddsO_se_pca["replicate"] <- c(rep(c("rep1","rep2","rep3"),2))
+H1_shC_H1_NTC_ddsO_se_pca["samplenames"] <- H1_shC_H1_NTC_ddsO_se_pca$condition
+percentVarH1_shC_H1_NTC_ddsO_se <- round(100 * attr(H1_shC_H1_NTC_ddsO_se_pca, "percentVar"))
+ggplot(H1_shC_H1_NTC_ddsO_se_pca, aes(PC1, PC2, color=samplenames,shape=replicate)) +
+  geom_point(size=3) +
+  xlab(paste0("PC1: ",percentVarH1_shC_H1_NTC_ddsO_se[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVarH1_shC_H1_NTC_ddsO_se[2],"% variance")) +
+  coord_fixed()+ scale_color_manual(values = c(rep("black",1), rep("#CD534CFF",1)))+
+  theme_bw()+theme(panel.grid.major = element_line(colour = "white"),panel.grid.minor = element_line(colour = "white"))
+ggsave("PCA_H1_shC_H1_NTC_ddsO_secounts.svg", width=5, height=7, units="in", dpi=96)
+```
+
+
+
+### Perform clustering and show data by dendrogram
+```{r Clustering... showing dendrogram...}
+H1_shC_H1_NTC_ddsONormcountsdd <- dist(scale(t(H1_shC_H1_NTC_ddsONormcounts)), method = "euclidean")
+H1_shC_H1_NTC_ddsONormcountshc <- hclust(H1_shC_H1_NTC_ddsONormcountsdd, method = "ward.D")
+svg("Dendrogram_H1_shC_H1_NTC_ddsONormcountshc.svg")
+plot(H1_shC_H1_NTC_ddsONormcountshc)
+dev.off()
+```
+
+### Assign gene coordinates to DE
+```{r Assign gene coordinates to DE}
+for (temp1 in unique(H1_shC_H1_NTC_coldata$condition)){
+  for (temp2 in unique(H1_shC_H1_NTC_coldata$condition)){
+    if (temp1 != temp2){
+      print(paste0(temp1,"_",temp2))
+      deseq2_pairwise_temp1_2_results_0.05_df <- data.frame(get(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05")))
+      deseq2_pairwise_temp1_2_results_0.05_df["ens_gene"] <- rownames(deseq2_pairwise_temp1_2_results_0.05_df)
+      print(dim(deseq2_pairwise_temp1_2_results_0.05_df))
+      deseq2_pairwise_temp1_2_results_0.05_df_gene <- merge(deseq2_pairwise_temp1_2_results_0.05_df, gene_gencode_human_GRCh38, by ="ens_gene")
+      deseq2_pairwise_temp1_2_results_0.05_df_gene <- deseq2_pairwise_temp1_2_results_0.05_df_gene[,c(9,10,11,12,13,1:8)]
+      assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05_gene"), deseq2_pairwise_temp1_2_results_0.05_df_gene)
+      write.table(deseq2_pairwise_temp1_2_results_0.05_df_gene, paste0("deseq2_pairwise_res_",temp1,"_",temp2,"_","sorted_0.05_df_gene.txt"), sep="\t", quote = FALSE, append = FALSE, row.names = F, col.names = F)
+      system(paste0("sort -k1,1 -k2,2n " , "deseq2_pairwise_res_",temp1,"_",temp2,"_","sorted_0.05_df_gene.txt", " > ", "deseq2_pairwise_res_",temp1,"_",temp2,"_","sorted_0.05_df_gene_sorted.txt"))
+    }
+  }
+}
+```
+
+
+### MA Plot
+```{r plotting MA plot}
+temp3list = list()
+for (temp1 in unique(H1_shC_H1_NTC_coldata$condition)){
+  for (temp2 in unique(H1_shC_H1_NTC_coldata$condition)){
+    if (temp1 != temp2){
+      print(paste0(temp1, "_",temp2))
+      plotMA_temp3 <- ggmaplot(get(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted")),
+         fdr = 0.05, fc = 2, size = 0.3,
+         palette = c("#D22B2B", "#1465AC", "darkgray"),
+         genenames = as.vector(unlist(lapply(str_split(rownames(get(paste0("deseq2_pairwise_res_",temp1,"_",temp2,"_","sorted"))), "%"), function(x) x[2]))),
+         legend = "top", top = 20,
+         font.label = c("bold", 5),
+         font.legend = "bold",
+         font.main = "bold",
+         ggtheme = ggplot2::theme_minimal())
+      temp3list[[paste0(temp1, "_",temp2)]]  <- plotMA_temp3
+    }
+  }
+}
+
+pdf(file = "H1_shC_H1_NTC_maplot_plot_list_rnaseq_new.pdf", height = 10, width = 5)
+ggpubr::ggarrange(plotlist = temp3list, ncol=1, nrow=2, common.legend = F, labels=names(temp3list), vjust = 1,hjust=-0.5,font.label = list(size = 10, color = "black", face = "bold", family = NULL))
+dev.off()
+```
+
+
+### Volcano plot
+```{r Volcano plot}
+library(dplyr)
+temp4list = list()
+for (temp1 in unique(H1_shC_H1_NTC_coldata$condition)){
+  for (temp2 in unique(H1_shC_H1_NTC_coldata$condition)){
+    if (temp1 != temp2){
+      print(paste0(temp1, "_", temp2))
+      temp4df <- data.frame(get(paste0("deseq2_pairwise_res_",temp1,"_",temp2,"_","sorted")))
+      temp4df <- temp4df %>% dplyr::mutate(Expression = case_when(log2FoldChange > 1 & padj < 0.05 ~ "Upregulated", log2FoldChange < -1 & padj < 0.05 ~ "Downregulated", TRUE ~ "Unchanged"))
+      temp4df$gene_symbol <- rownames(temp4df)
+      assign(paste0(temp1, "_",temp2,"_pairwise_top_de_genes"), bind_rows(
+        temp4df %>% dplyr::filter(Expression == 'Upregulated') %>%  arrange(padj, desc(abs(log2FoldChange))) %>% head(10),
+        temp4df %>% dplyr::filter(Expression == 'Downregulated') %>% arrange(padj, desc(abs(log2FoldChange))) %>% head(10)
+      ))
+      #Assemble top de genes and full data in one dataframe, required for proper labelling as tested
+      temp4_top_de_genes <- get(paste0(temp1, "_",temp2,"_pairwise_top_de_genes"))
+      temp4_top_de_genes$gene_symbol <- rownames(temp4_top_de_genes)
+      print(temp4_top_de_genes$gene_symbol)
+      temp4_top_de_genes$label <- rownames(temp4_top_de_genes)
+      temp4_top_de_genes <- temp4_top_de_genes[,-c(1:7)]
+      temp4df_labelled <- merge(temp4df, temp4_top_de_genes, by="gene_symbol", all.x= TRUE)
+      temp4df_labelled$labeldiff <- unlist(lapply(strsplit(temp4df_labelled$label, "%"), function(x) x[2]))
+      #Now temp4df_labelled contain all required labelling
+      temp4df_p <- ggplot(temp4df_labelled, aes(log2FoldChange, -log(padj,10))) + geom_point(aes(color = Expression), size = 0.3) + xlab(expression("Log"[2]*"FC")) + ylab(expression("-Log"[10]*"padj")) +
+    scale_color_manual(values = c("dodgerblue3", "gray50", "firebrick3")) +
+    guides(colour = guide_legend(override.aes = list(size=1.5))) + theme_classic() +
+    theme(legend.position="none") + geom_text_repel(data = temp4df_labelled, mapping = aes(log2FoldChange,-log(padj,10), label = labeldiff, size = 0.4))
+      temp4list[[paste0(temp1, "_",temp2)]] <- temp4df_p
+    }
+  }
+}
+
+pdf(file = "H1_shC_H1_NTC_volcano_plot_list_rnaseq_new.pdf", height = 10, width = 10)
+ggpubr::ggarrange(plotlist = temp4list, ncol=1, nrow=2, common.legend = F, labels=names(temp4list), vjust = 1,hjust=-0.5,font.label = list(size = 8, color = "black", face = "bold", family = NULL))
+dev.off()
+
+#While running warning of missing values will come for padj NA
+```
+
+### Functional analysis
+```{r Performing gProfiler2 analysis}
+#Note: p_value output of gost function is Hypergeometric p-value after correction for multiple testing, see https://biit.cs.ut.ee/gprofiler_beta/page/apis#gost_query_results
+# Prepare gostplot using gene symbol as character
+goterm_analysislist <- list()
+for (temp1 in unique(H1_shC_H1_NTC_coldata$condition)){
+  for (temp2 in unique(H1_shC_H1_NTC_coldata$condition)){
+    if (temp1 != temp2){
+      print(paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.up"))
+      assign(paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.up"),gost(query=unlist(lapply(strsplit(rownames(get(paste0("deseq2_pairwise_res_",temp1,"_",temp2,"_","sorted_0.05.up"))), "%"), function(x) x[2])), organism="hsapiens"))
+      print(paste0("gost_pairwise_",temp1, "_",temp2,"_0.05.down"))
+      assign(paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.down"),gost(query=unlist(lapply(strsplit(rownames(get(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.down"))), "%"), function(x) x[2])), organism="hsapiens"))
+      goterm_analysislist[[paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.up")]] <- paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.up")
+      goterm_analysislist[[paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.down")]] <- paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.down")
+    }
+  }
+}
+
+```
+
+
+### Bar plotting with GO:BP terms
+```{r Bar plotting with GO:BP terms}
+temp6list <- list()
+for (names in names(goterm_analysislist)){
+  gost.temp6 <- get(names)
+  gost.temp6.res.sorted <- gost.temp6$result[order(gost.temp6$result$p_value),]
+  gost.temp6.res.sorted["term_name_collapse"] <- paste0(gost.temp6.res.sorted$term_id,"_",gost.temp6.res.sorted$source,"_" ,gsub(" ", ".", gost.temp6.res.sorted$term_name))
+  gost.temp6.res.sorted_gobp <- gost.temp6.res.sorted[which(gost.temp6.res.sorted$source == "GO:BP"),]
+  gost.temp6.res.sorted_gobp_bar <- gost.temp6.res.sorted_gobp[,c(11,3)]
+  gost.temp6.res.sorted_gobp_bar_top <- head(gost.temp6.res.sorted_gobp_bar,10)
+  gost.temp6.res.sorted_gobp_bar_top$p_value <- -log10(gost.temp6.res.sorted_gobp_bar_top$p_value)
+  if((any(grepl('.up', names))) == T){
+    print(names)
+    plotBar_temp6 <- ggbarplot(gost.temp6.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#5d93c4ff", fill = "#5d93c4ff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = gsub("gost.","",names), lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+  temp6list[[names]] <- plotBar_temp6
+  }else{
+    print(names)
+    plotBar_temp6 <- ggbarplot(gost.temp6.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#e58e8eff", fill = "#e58e8eff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = gsub("gost.","",names), lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+  temp6list[[names]] <- plotBar_temp6
+  }
+}
+   
+
+pdf(file = "H1_shC_H1_NTC_gobp_barlot_plot_list_rnaseq_new.pdf", height = 10, width = 20)
+ggpubr::ggarrange(plotlist = temp6list, ncol=2, nrow=2, common.legend = F, labels=names(temp6list), vjust = 1,hjust=-0.5,font.label = list(size = 8, color = "black", face = "bold", family = NULL))
+dev.off()
+```
+
+
+
+## Individual shC_NTC
+### Plot PCA for some  samples
+```{r Plot PCA for some  samples}
+plotPCA(as.matrix(shC_NTC_countdata))
+```
+
+
+### Create sample-specific coldata object
+```{r Creating coldata object}
+shC_NTC_coldata <- data.frame(samples = colData(dds)$sample[7:12], condition = c(rep("NTC",3), rep("shC",3)), replicate = c(rep(c("r1","r2","r3"),2)))
+rownames(shC_NTC_coldata) <- colData(dds)$sample[7:12]
+shC_NTC_coldata <- shC_NTC_coldata[,c("condition", "replicate")]
+shC_NTC_coldata$condition <- factor(shC_NTC_coldata$condition)
+shC_NTC_coldata$replicate <- factor(shC_NTC_coldata$replicate)
+shC_NTC_coldata["Sample"] <- rownames(shC_NTC_coldata)
+```
+
+### Prepare count matrix
+```{r Preparing count matrix}
+shC_NTC_countdata = as.matrix(shC_NTC_countdata) 
+#all(rownames(coldata) == colnames(shC_NTC_countdata)) #should print TRUE
+shC_NTC_ddsO <- DESeqDataSetFromMatrix(countData = shC_NTC_countdata, colData = shC_NTC_coldata, design = ~ condition)
+shC_NTC_keep <- rowSums(counts(shC_NTC_ddsO)) > 10
+shC_NTC_ddsO <- shC_NTC_ddsO[shC_NTC_keep,]
+```
+
+### Perform sample-specific Differential Expression
+```{r Performing differential expression}
+
+#Normalization is the part of DESeq command: https://hbctraining.github.io/DGE_workshop/lessons/02_DGE_count_normalization.html
+shC_NTC_ddsO <- DESeq(shC_NTC_ddsO)
+#See size factors estimated by DESeq function: sizeFactors(dds)
+```
+
+### Get Differentially Expressed Genes (DEGs) 
+```{r Getting differential expressed genes,message=FALSE}
+count  = 0
+for (temp1 in unique(shC_NTC_coldata$condition)){
+  for (temp2 in unique(shC_NTC_coldata$condition)){
+    if (temp1 != temp2){
+      count = count + 1
+      print(c(count,temp1,temp2))
+      temp1_2_results <- results(shC_NTC_ddsO, contrast=c("condition",temp1,temp2))
+      #print(temp1_2_results)
+      temp1_2_results = temp1_2_results[order(rownames(temp1_2_results)),]
+      print(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted"))
+      assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted"), temp1_2_results)
+      write.table(temp1_2_results, paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted.txt"), sep="\t", quote = FALSE, append = FALSE)
+      temp1_2_results$threshold <- as.logical(temp1_2_results$padj < 0.05)
+      deseq2_pairwise_temp1_2_results_0.05 <- temp1_2_results[which(temp1_2_results$threshold == TRUE),]
+      print(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05"))
+      print(paste0("",dim(deseq2_pairwise_temp1_2_results_0.05)))
+      assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05"), deseq2_pairwise_temp1_2_results_0.05)
+      write.table(deseq2_pairwise_temp1_2_results_0.05, paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.txt"), sep="\t", quote = FALSE, append = FALSE)
+
+      #Get up and downregulated genes
+      assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.up"), deseq2_pairwise_temp1_2_results_0.05[which(deseq2_pairwise_temp1_2_results_0.05$log2FoldChange > 1),])
+      assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.down"), deseq2_pairwise_temp1_2_results_0.05[which(deseq2_pairwise_temp1_2_results_0.05$log2FoldChange < -1),])
+      print(dim(get(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.up"))))
+      print(dim(get(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.down"))))
+    }
+  }
+}
+```
+
+### Normamalize shC_NTC_ddsO
+```{r Normamalize shC_NTC_ddsO}
+#Normalized separately:
+shC_NTC_ddsONorm <- estimateSizeFactors(shC_NTC_ddsO)
+sizeFactors(shC_NTC_ddsONorm)
+#Export normalized counts
+shC_NTC_ddsONormcounts <- counts(shC_NTC_ddsONorm, normalized=TRUE)
+head(shC_NTC_ddsONormcounts)
+dim(shC_NTC_ddsONormcounts)
+write.table(shC_NTC_ddsONormcounts, "shC_NTC_ddsONormcounts.txt", sep="\t", quote=F, append = F,col.names=F)
+```
+
+### Plot PCA for all the samples new shC_NTC_ddsO
+```{r Plot PCA for all the samples new shC_NTC_ddsO}
+plotPCA(as.matrix(shC_NTC_ddsONormcounts))
+
+ggsave("PCA_shC_NTC_ddsONormcounts.svg", width=5, height=7, units="in", dpi=96)
+shC_NTC_ddsO_se <- SummarizedExperiment(log2(counts(shC_NTC_ddsONorm, normalized=TRUE)),
+                           colData=colData(shC_NTC_ddsONorm))
+# the call to DESeqTransform() is needed to
+# trigger our plotPCA method.
+shC_NTC_ddsO_se_pca <- plotPCA(DESeqTransform(shC_NTC_ddsO_se), returnData=TRUE)
+shC_NTC_ddsO_se_pca["replicate"] <- c(rep(c("rep1","rep2","rep3"),2))
+shC_NTC_ddsO_se_pca["samplenames"] <- shC_NTC_ddsO_se_pca$condition
+percentVarshC_NTC_ddsO_se <- round(100 * attr(shC_NTC_ddsO_se_pca, "percentVar"))
+ggplot(shC_NTC_ddsO_se_pca, aes(PC1, PC2, color=samplenames,shape=replicate)) +
+  geom_point(size=3) +
+  xlab(paste0("PC1: ",percentVarshC_NTC_ddsO_se[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVarshC_NTC_ddsO_se[2],"% variance")) +
+  coord_fixed()+ scale_color_manual(values = c(rep("black",1), rep("#CD534CFF",1)))+
+  theme_bw()+theme(panel.grid.major = element_line(colour = "white"),panel.grid.minor = element_line(colour = "white"))
+ggsave("PCA_shC_NTC_ddsO_secounts.svg", width=5, height=7, units="in", dpi=96)
+```
+
+
+
+### Perform clustering and show data by dendrogram
+```{r Clustering... showing dendrogram...}
+shC_NTC_ddsONormcountsdd <- dist(scale(t(shC_NTC_ddsONormcounts)), method = "euclidean")
+shC_NTC_ddsONormcountshc <- hclust(shC_NTC_ddsONormcountsdd, method = "ward.D")
+svg("Dendrogram_shC_NTC_ddsONormcountshc.svg")
+plot(shC_NTC_ddsONormcountshc)
+dev.off()
+```
+
+### Assign gene coordinates to DE
+```{r Assign gene coordinates to DE}
+for (temp1 in unique(shC_NTC_coldata$condition)){
+  for (temp2 in unique(shC_NTC_coldata$condition)){
+    if (temp1 != temp2){
+      print(paste0(temp1,"_",temp2))
+      deseq2_pairwise_temp1_2_results_0.05_df <- data.frame(get(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05")))
+      deseq2_pairwise_temp1_2_results_0.05_df["ens_gene"] <- rownames(deseq2_pairwise_temp1_2_results_0.05_df)
+      print(dim(deseq2_pairwise_temp1_2_results_0.05_df))
+      deseq2_pairwise_temp1_2_results_0.05_df_gene <- merge(deseq2_pairwise_temp1_2_results_0.05_df, gene_gencode_human_GRCh38, by ="ens_gene")
+      deseq2_pairwise_temp1_2_results_0.05_df_gene <- deseq2_pairwise_temp1_2_results_0.05_df_gene[,c(9,10,11,12,13,1:8)]
+      assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05_gene"), deseq2_pairwise_temp1_2_results_0.05_df_gene)
+      write.table(deseq2_pairwise_temp1_2_results_0.05_df_gene, paste0("deseq2_pairwise_res_",temp1,"_",temp2,"_","sorted_0.05_df_gene.txt"), sep="\t", quote = FALSE, append = FALSE, row.names = F, col.names = F)
+      system(paste0("sort -k1,1 -k2,2n " , "deseq2_pairwise_res_",temp1,"_",temp2,"_","sorted_0.05_df_gene.txt", " > ", "deseq2_pairwise_res_",temp1,"_",temp2,"_","sorted_0.05_df_gene_sorted.txt"))
+    }
+  }
+}
+```
+
+
+### MA Plot
+```{r plotting MA plot}
+temp3list = list()
+for (temp1 in unique(shC_NTC_coldata$condition)){
+  for (temp2 in unique(shC_NTC_coldata$condition)){
+    if (temp1 != temp2){
+      print(paste0(temp1, "_",temp2))
+      plotMA_temp3 <- ggmaplot(get(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted")),
+         fdr = 0.05, fc = 2, size = 0.3,
+         palette = c("#D22B2B", "#1465AC", "darkgray"),
+         genenames = as.vector(unlist(lapply(str_split(rownames(get(paste0("deseq2_pairwise_res_",temp1,"_",temp2,"_","sorted"))), "%"), function(x) x[2]))),
+         legend = "top", top = 20,
+         font.label = c("bold", 5),
+         font.legend = "bold",
+         font.main = "bold",
+         ggtheme = ggplot2::theme_minimal())
+      temp3list[[paste0(temp1, "_",temp2)]]  <- plotMA_temp3
+    }
+  }
+}
+
+pdf(file = "shC_NTC_maplot_plot_list_rnaseq_new.pdf", height = 10, width = 5)
+ggpubr::ggarrange(plotlist = temp3list, ncol=1, nrow=2, common.legend = F, labels=names(temp3list), vjust = 1,hjust=-0.5,font.label = list(size = 10, color = "black", face = "bold", family = NULL))
+dev.off()
+```
+
+
+### Volcano plot
+```{r Volcano plot}
+library(dplyr)
+temp4list = list()
+for (temp1 in unique(shC_NTC_coldata$condition)){
+  for (temp2 in unique(shC_NTC_coldata$condition)){
+    if (temp1 != temp2){
+      print(paste0(temp1, "_", temp2))
+      temp4df <- data.frame(get(paste0("deseq2_pairwise_res_",temp1,"_",temp2,"_","sorted")))
+      temp4df <- temp4df %>% dplyr::mutate(Expression = case_when(log2FoldChange > 1 & padj < 0.05 ~ "Upregulated", log2FoldChange < -1 & padj < 0.05 ~ "Downregulated", TRUE ~ "Unchanged"))
+      temp4df$gene_symbol <- rownames(temp4df)
+      assign(paste0(temp1, "_",temp2,"_pairwise_top_de_genes"), bind_rows(
+        temp4df %>% dplyr::filter(Expression == 'Upregulated') %>%  arrange(padj, desc(abs(log2FoldChange))) %>% head(10),
+        temp4df %>% dplyr::filter(Expression == 'Downregulated') %>% arrange(padj, desc(abs(log2FoldChange))) %>% head(10)
+      ))
+      #Assemble top de genes and full data in one dataframe, required for proper labelling as tested
+      temp4_top_de_genes <- get(paste0(temp1, "_",temp2,"_pairwise_top_de_genes"))
+      temp4_top_de_genes$gene_symbol <- rownames(temp4_top_de_genes)
+      print(temp4_top_de_genes$gene_symbol)
+      temp4_top_de_genes$label <- rownames(temp4_top_de_genes)
+      temp4_top_de_genes <- temp4_top_de_genes[,-c(1:7)]
+      temp4df_labelled <- merge(temp4df, temp4_top_de_genes, by="gene_symbol", all.x= TRUE)
+      temp4df_labelled$labeldiff <- unlist(lapply(strsplit(temp4df_labelled$label, "%"), function(x) x[2]))
+      #Now temp4df_labelled contain all required labelling
+      temp4df_p <- ggplot(temp4df_labelled, aes(log2FoldChange, -log(padj,10))) + geom_point(aes(color = Expression), size = 0.3) + xlab(expression("Log"[2]*"FC")) + ylab(expression("-Log"[10]*"padj")) +
+    scale_color_manual(values = c("dodgerblue3", "gray50", "firebrick3")) +
+    guides(colour = guide_legend(override.aes = list(size=1.5))) + theme_classic() +
+    theme(legend.position="none") + geom_text_repel(data = temp4df_labelled, mapping = aes(log2FoldChange,-log(padj,10), label = labeldiff, size = 0.4))
+      temp4list[[paste0(temp1, "_",temp2)]] <- temp4df_p
+    }
+  }
+}
+
+pdf(file = "shC_NTC_volcano_plot_list_rnaseq_new.pdf", height = 10, width = 10)
+ggpubr::ggarrange(plotlist = temp4list, ncol=1, nrow=2, common.legend = F, labels=names(temp4list), vjust = 1,hjust=-0.5,font.label = list(size = 8, color = "black", face = "bold", family = NULL))
+dev.off()
+
+#While running warning of missing values will come for padj NA
+```
+
+### Functional analysis
+```{r Performing gProfiler2 analysis}
+#Note: p_value output of gost function is Hypergeometric p-value after correction for multiple testing, see https://biit.cs.ut.ee/gprofiler_beta/page/apis#gost_query_results
+# Prepare gostplot using gene symbol as character
+goterm_analysislist <- list()
+for (temp1 in unique(shC_NTC_coldata$condition)){
+  for (temp2 in unique(shC_NTC_coldata$condition)){
+    if (temp1 != temp2){
+      print(paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.up"))
+      assign(paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.up"),gost(query=unlist(lapply(strsplit(rownames(get(paste0("deseq2_pairwise_res_",temp1,"_",temp2,"_","sorted_0.05.up"))), "%"), function(x) x[2])), organism="hsapiens"))
+      print(paste0("gost_pairwise_",temp1, "_",temp2,"_0.05.down"))
+      assign(paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.down"),gost(query=unlist(lapply(strsplit(rownames(get(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.down"))), "%"), function(x) x[2])), organism="hsapiens"))
+      goterm_analysislist[[paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.up")]] <- paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.up")
+      goterm_analysislist[[paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.down")]] <- paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.down")
+    }
+  }
+}
+
+```
+
+
+### Bar plotting with GO:BP terms
+```{r Bar plotting with GO:BP terms}
+temp6list <- list()
+for (names in names(goterm_analysislist)){
+  gost.temp6 <- get(names)
+  gost.temp6.res.sorted <- gost.temp6$result[order(gost.temp6$result$p_value),]
+  gost.temp6.res.sorted["term_name_collapse"] <- paste0(gost.temp6.res.sorted$term_id,"_",gost.temp6.res.sorted$source,"_" ,gsub(" ", ".", gost.temp6.res.sorted$term_name))
+  gost.temp6.res.sorted_gobp <- gost.temp6.res.sorted[which(gost.temp6.res.sorted$source == "GO:BP"),]
+  gost.temp6.res.sorted_gobp_bar <- gost.temp6.res.sorted_gobp[,c(11,3)]
+  gost.temp6.res.sorted_gobp_bar_top <- head(gost.temp6.res.sorted_gobp_bar,10)
+  gost.temp6.res.sorted_gobp_bar_top$p_value <- -log10(gost.temp6.res.sorted_gobp_bar_top$p_value)
+  if((any(grepl('.up', names))) == T){
+    print(names)
+    plotBar_temp6 <- ggbarplot(gost.temp6.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#5d93c4ff", fill = "#5d93c4ff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = gsub("gost.","",names), lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+  temp6list[[names]] <- plotBar_temp6
+  }else{
+    print(names)
+    plotBar_temp6 <- ggbarplot(gost.temp6.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#e58e8eff", fill = "#e58e8eff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = gsub("gost.","",names), lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+  temp6list[[names]] <- plotBar_temp6
+  }
+}
+   
+
+pdf(file = "shC_NTC_gobp_barlot_plot_list_rnaseq_new.pdf", height = 10, width = 20)
+ggpubr::ggarrange(plotlist = temp6list, ncol=2, nrow=2, common.legend = F, labels=names(temp6list), vjust = 1,hjust=-0.5,font.label = list(size = 8, color = "black", face = "bold", family = NULL))
+dev.off()
+```
+
+## Individual shH_NTC
+### Plot PCA for some  samples
+```{r Plot PCA for some  samples}
+plotPCA(as.matrix(shH_NTC_countdata))
+```
+
+
+### Create sample-specific coldata object
+```{r Creating coldata object}
+shH_NTC_coldata <- data.frame(samples = colData(dds)$sample[c(7:9,13:15)], condition = c(rep("NTC",3), rep("shH",3)), replicate = c(rep(c("r1","r2","r3"),2)))
+rownames(shH_NTC_coldata) <- colData(dds)$sample[c(7:9,13:15)]
+shH_NTC_coldata <- shH_NTC_coldata[,c("condition", "replicate")]
+shH_NTC_coldata$condition <- factor(shH_NTC_coldata$condition)
+shH_NTC_coldata$replicate <- factor(shH_NTC_coldata$replicate)
+shH_NTC_coldata["Sample"] <- rownames(shH_NTC_coldata)
+```
+
+### Prepare count matrix
+```{r Preparing count matrix}
+shH_NTC_countdata = as.matrix(shH_NTC_countdata) 
+#all(rownames(coldata) == colnames(shH_NTC_countdata)) #should print TRUE
+shH_NTC_ddsO <- DESeqDataSetFromMatrix(countData = shH_NTC_countdata, colData = shH_NTC_coldata, design = ~ condition)
+shH_NTC_keep <- rowSums(counts(shH_NTC_ddsO)) > 10
+shH_NTC_ddsO <- shH_NTC_ddsO[shH_NTC_keep,]
+```
+
+### Perform sample-specific Differential Expression
+```{r Performing differential expression}
+
+#Normalization is the part of DESeq command: https://hbctraining.github.io/DGE_workshop/lessons/02_DGE_count_normalization.html
+shH_NTC_ddsO <- DESeq(shH_NTC_ddsO)
+#See size factors estimated by DESeq function: sizeFactors(dds)
+```
+
+### Get Differentially Expressed Genes (DEGs) 
+```{r Getting differential expressed genes,message=FALSE}
+count  = 0
+for (temp1 in unique(shH_NTC_coldata$condition)){
+  for (temp2 in unique(shH_NTC_coldata$condition)){
+    if (temp1 != temp2){
+      count = count + 1
+      print(c(count,temp1,temp2))
+      temp1_2_results <- results(shH_NTC_ddsO, contrast=c("condition",temp1,temp2))
+      #print(temp1_2_results)
+      temp1_2_results = temp1_2_results[order(rownames(temp1_2_results)),]
+      print(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted"))
+      assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted"), temp1_2_results)
+      write.table(temp1_2_results, paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted.txt"), sep="\t", quote = FALSE, append = FALSE)
+      temp1_2_results$threshold <- as.logical(temp1_2_results$padj < 0.05)
+      deseq2_pairwise_temp1_2_results_0.05 <- temp1_2_results[which(temp1_2_results$threshold == TRUE),]
+      print(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05"))
+      print(paste0("",dim(deseq2_pairwise_temp1_2_results_0.05)))
+      assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05"), deseq2_pairwise_temp1_2_results_0.05)
+      write.table(deseq2_pairwise_temp1_2_results_0.05, paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.txt"), sep="\t", quote = FALSE, append = FALSE)
+
+      #Get up and downregulated genes
+      assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.up"), deseq2_pairwise_temp1_2_results_0.05[which(deseq2_pairwise_temp1_2_results_0.05$log2FoldChange > 1),])
+      assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.down"), deseq2_pairwise_temp1_2_results_0.05[which(deseq2_pairwise_temp1_2_results_0.05$log2FoldChange < -1),])
+      print(dim(get(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.up"))))
+      print(dim(get(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.down"))))
+    }
+  }
+}
+```
+
+### Normamalize shH_NTC_ddsO
+```{r Normamalize shH_NTC_ddsO}
+#Normalized separately:
+shH_NTC_ddsONorm <- estimateSizeFactors(shH_NTC_ddsO)
+sizeFactors(shH_NTC_ddsONorm)
+#Export normalized counts
+shH_NTC_ddsONormcounts <- counts(shH_NTC_ddsONorm, normalized=TRUE)
+head(shH_NTC_ddsONormcounts)
+dim(shH_NTC_ddsONormcounts)
+write.table(shH_NTC_ddsONormcounts, "shH_NTC_ddsONormcounts.txt", sep="\t", quote=F, append = F,col.names=F)
+```
+
+### Plot PCA for all the samples new shH_NTC_ddsO
+```{r Plot PCA for all the samples new shH_NTC_ddsO}
+plotPCA(as.matrix(shH_NTC_ddsONormcounts))
+
+ggsave("PCA_shH_NTC_ddsONormcounts.svg", width=5, height=7, units="in", dpi=96)
+shH_NTC_ddsO_se <- SummarizedExperiment(log2(counts(shH_NTC_ddsONorm, normalized=TRUE)),
+                           colData=colData(shH_NTC_ddsONorm))
+# the call to DESeqTransform() is needed to
+# trigger our plotPCA method.
+shH_NTC_ddsO_se_pca <- plotPCA(DESeqTransform(shH_NTC_ddsO_se), returnData=TRUE)
+shH_NTC_ddsO_se_pca["replicate"] <- c(rep(c("rep1","rep2","rep3"),2))
+shH_NTC_ddsO_se_pca["samplenames"] <- shH_NTC_ddsO_se_pca$condition
+percentVarshH_NTC_ddsO_se <- round(100 * attr(shH_NTC_ddsO_se_pca, "percentVar"))
+ggplot(shH_NTC_ddsO_se_pca, aes(PC1, PC2, color=samplenames,shape=replicate)) +
+  geom_point(size=3) +
+  xlab(paste0("PC1: ",percentVarshH_NTC_ddsO_se[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVarshH_NTC_ddsO_se[2],"% variance")) +
+  coord_fixed()+ scale_color_manual(values = c(rep("black",1), rep("#CD534CFF",1)))+
+  theme_bw()+theme(panel.grid.major = element_line(colour = "white"),panel.grid.minor = element_line(colour = "white"))
+ggsave("PCA_shH_NTC_ddsO_secounts.svg", width=5, height=7, units="in", dpi=96)
+```
+
+
+
+### Perform clustering and show data by dendrogram
+```{r Clustering... showing dendrogram...}
+shH_NTC_ddsONormcountsdd <- dist(scale(t(shH_NTC_ddsONormcounts)), method = "euclidean")
+shH_NTC_ddsONormcountshH <- hclust(shH_NTC_ddsONormcountsdd, method = "ward.D")
+svg("Dendrogram_shH_NTC_ddsONormcountshH.svg")
+plot(shH_NTC_ddsONormcountshH)
+dev.off()
+```
+
+### Assign gene coordinates to DE
+```{r Assign gene coordinates to DE}
+for (temp1 in unique(shH_NTC_coldata$condition)){
+  for (temp2 in unique(shH_NTC_coldata$condition)){
+    if (temp1 != temp2){
+      print(paste0(temp1,"_",temp2))
+      deseq2_pairwise_temp1_2_results_0.05_df <- data.frame(get(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05")))
+      deseq2_pairwise_temp1_2_results_0.05_df["ens_gene"] <- rownames(deseq2_pairwise_temp1_2_results_0.05_df)
+      print(dim(deseq2_pairwise_temp1_2_results_0.05_df))
+      deseq2_pairwise_temp1_2_results_0.05_df_gene <- merge(deseq2_pairwise_temp1_2_results_0.05_df, gene_gencode_human_GRCh38, by ="ens_gene")
+      deseq2_pairwise_temp1_2_results_0.05_df_gene <- deseq2_pairwise_temp1_2_results_0.05_df_gene[,c(9,10,11,12,13,1:8)]
+      assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05_gene"), deseq2_pairwise_temp1_2_results_0.05_df_gene)
+      write.table(deseq2_pairwise_temp1_2_results_0.05_df_gene, paste0("deseq2_pairwise_res_",temp1,"_",temp2,"_","sorted_0.05_df_gene.txt"), sep="\t", quote = FALSE, append = FALSE, row.names = F, col.names = F)
+      system(paste0("sort -k1,1 -k2,2n " , "deseq2_pairwise_res_",temp1,"_",temp2,"_","sorted_0.05_df_gene.txt", " > ", "deseq2_pairwise_res_",temp1,"_",temp2,"_","sorted_0.05_df_gene_sorted.txt"))
+    }
+  }
+}
+```
+
+
+### MA Plot
+```{r plotting MA plot}
+temp3list = list()
+for (temp1 in unique(shH_NTC_coldata$condition)){
+  for (temp2 in unique(shH_NTC_coldata$condition)){
+    if (temp1 != temp2){
+      print(paste0(temp1, "_",temp2))
+      plotMA_temp3 <- ggmaplot(get(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted")),
+         fdr = 0.05, fc = 2, size = 0.3,
+         palette = c("#D22B2B", "#1465AC", "darkgray"),
+         genenames = as.vector(unlist(lapply(str_split(rownames(get(paste0("deseq2_pairwise_res_",temp1,"_",temp2,"_","sorted"))), "%"), function(x) x[2]))),
+         legend = "top", top = 20,
+         font.label = c("bold", 5),
+         font.legend = "bold",
+         font.main = "bold",
+         ggtheme = ggplot2::theme_minimal())
+      temp3list[[paste0(temp1, "_",temp2)]]  <- plotMA_temp3
+    }
+  }
+}
+
+pdf(file = "shH_NTC_maplot_plot_list_rnaseq_new.pdf", height = 10, width = 5)
+ggpubr::ggarrange(plotlist = temp3list, ncol=1, nrow=2, common.legend = F, labels=names(temp3list), vjust = 1,hjust=-0.5,font.label = list(size = 10, color = "black", face = "bold", family = NULL))
+dev.off()
+```
+
+
+### Volcano plot
+```{r Volcano plot}
+library(dplyr)
+temp4list = list()
+for (temp1 in unique(shH_NTC_coldata$condition)){
+  for (temp2 in unique(shH_NTC_coldata$condition)){
+    if (temp1 != temp2){
+      print(paste0(temp1, "_", temp2))
+      temp4df <- data.frame(get(paste0("deseq2_pairwise_res_",temp1,"_",temp2,"_","sorted")))
+      temp4df <- temp4df %>% dplyr::mutate(Expression = case_when(log2FoldChange > 1 & padj < 0.05 ~ "Upregulated", log2FoldChange < -1 & padj < 0.05 ~ "Downregulated", TRUE ~ "Unchanged"))
+      temp4df$gene_symbol <- rownames(temp4df)
+      assign(paste0(temp1, "_",temp2,"_pairwise_top_de_genes"), bind_rows(
+        temp4df %>% dplyr::filter(Expression == 'Upregulated') %>%  arrange(padj, desc(abs(log2FoldChange))) %>% head(10),
+        temp4df %>% dplyr::filter(Expression == 'Downregulated') %>% arrange(padj, desc(abs(log2FoldChange))) %>% head(10)
+      ))
+      #Assemble top de genes and full data in one dataframe, required for proper labelling as tested
+      temp4_top_de_genes <- get(paste0(temp1, "_",temp2,"_pairwise_top_de_genes"))
+      temp4_top_de_genes$gene_symbol <- rownames(temp4_top_de_genes)
+      print(temp4_top_de_genes$gene_symbol)
+      temp4_top_de_genes$label <- rownames(temp4_top_de_genes)
+      temp4_top_de_genes <- temp4_top_de_genes[,-c(1:7)]
+      temp4df_labelled <- merge(temp4df, temp4_top_de_genes, by="gene_symbol", all.x= TRUE)
+      temp4df_labelled$labeldiff <- unlist(lapply(strsplit(temp4df_labelled$label, "%"), function(x) x[2]))
+      #Now temp4df_labelled contain all required labelling
+      temp4df_p <- ggplot(temp4df_labelled, aes(log2FoldChange, -log(padj,10))) + geom_point(aes(color = Expression), size = 0.3) + xlab(expression("Log"[2]*"FC")) + ylab(expression("-Log"[10]*"padj")) +
+    scale_color_manual(values = c("dodgerblue3", "gray50", "firebrick3")) +
+    guides(colour = guide_legend(override.aes = list(size=1.5))) + theme_classic() +
+    theme(legend.position="none") + geom_text_repel(data = temp4df_labelled, mapping = aes(log2FoldChange,-log(padj,10), label = labeldiff, size = 0.4))
+      temp4list[[paste0(temp1, "_",temp2)]] <- temp4df_p
+    }
+  }
+}
+
+pdf(file = "shH_NTC_volcano_plot_list_rnaseq_new.pdf", height = 10, width = 10)
+ggpubr::ggarrange(plotlist = temp4list, ncol=1, nrow=2, common.legend = F, labels=names(temp4list), vjust = 1,hjust=-0.5,font.label = list(size = 8, color = "black", face = "bold", family = NULL))
+dev.off()
+
+#While running warning of missing values will come for padj NA
+```
+
+### Functional analysis
+```{r Performing gProfiler2 analysis}
+#Note: p_value output of gost function is Hypergeometric p-value after correction for multiple testing, see https://biit.cs.ut.ee/gprofiler_beta/page/apis#gost_query_results
+# Prepare gostplot using gene symbol as character
+goterm_analysislist <- list()
+for (temp1 in unique(shH_NTC_coldata$condition)){
+  for (temp2 in unique(shH_NTC_coldata$condition)){
+    if (temp1 != temp2){
+      print(paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.up"))
+      assign(paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.up"),gost(query=unlist(lapply(strsplit(rownames(get(paste0("deseq2_pairwise_res_",temp1,"_",temp2,"_","sorted_0.05.up"))), "%"), function(x) x[2])), organism="hsapiens"))
+      print(paste0("gost_pairwise_",temp1, "_",temp2,"_0.05.down"))
+      assign(paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.down"),gost(query=unlist(lapply(strsplit(rownames(get(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.down"))), "%"), function(x) x[2])), organism="hsapiens"))
+      goterm_analysislist[[paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.up")]] <- paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.up")
+      goterm_analysislist[[paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.down")]] <- paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.down")
+    }
+  }
+}
+
+```
+
+
+### Bar plotting with GO:BP terms
+```{r Bar plotting with GO:BP terms}
+temp6list <- list()
+for (names in names(goterm_analysislist)){
+  gost.temp6 <- get(names)
+  gost.temp6.res.sorted <- gost.temp6$result[order(gost.temp6$result$p_value),]
+  gost.temp6.res.sorted["term_name_collapse"] <- paste0(gost.temp6.res.sorted$term_id,"_",gost.temp6.res.sorted$source,"_" ,gsub(" ", ".", gost.temp6.res.sorted$term_name))
+  gost.temp6.res.sorted_gobp <- gost.temp6.res.sorted[which(gost.temp6.res.sorted$source == "GO:BP"),]
+  gost.temp6.res.sorted_gobp_bar <- gost.temp6.res.sorted_gobp[,c(11,3)]
+  gost.temp6.res.sorted_gobp_bar_top <- head(gost.temp6.res.sorted_gobp_bar,10)
+  gost.temp6.res.sorted_gobp_bar_top$p_value <- -log10(gost.temp6.res.sorted_gobp_bar_top$p_value)
+  if((any(grepl('.up', names))) == T){
+    print(names)
+    plotBar_temp6 <- ggbarplot(gost.temp6.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#5d93c4ff", fill = "#5d93c4ff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = gsub("gost.","",names), lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+  temp6list[[names]] <- plotBar_temp6
+  }else{
+    print(names)
+    plotBar_temp6 <- ggbarplot(gost.temp6.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#e58e8eff", fill = "#e58e8eff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = gsub("gost.","",names), lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+  temp6list[[names]] <- plotBar_temp6
+  }
+}
+   
+
+pdf(file = "shH_NTC_gobp_barlot_plot_list_rnaseq_new.pdf", height = 10, width = 20)
+ggpubr::ggarrange(plotlist = temp6list, ncol=2, nrow=2, common.legend = F, labels=names(temp6list), vjust = 1,hjust=-0.5,font.label = list(size = 8, color = "black", face = "bold", family = NULL))
+dev.off()
+```
+
+
+
+## Individual shS_NTC
+### Plot PCA for some  samples
+```{r Plot PCA for some  samples}
+plotPCA(as.matrix(shS_NTC_countdata))
+```
+
+
+### Create sample-specific coldata object
+```{r Creating coldata object}
+shS_NTC_coldata <- data.frame(samples = colData(dds)$sample[c(7:9,16:18)], condition = c(rep("NTC",3), rep("shS",3)), replicate = c(rep(c("r1","r2","r3"),2)))
+rownames(shS_NTC_coldata) <- colData(dds)$sample[c(7:9,16:18)]
+shS_NTC_coldata <- shS_NTC_coldata[,c("condition", "replicate")]
+shS_NTC_coldata$condition <- factor(shS_NTC_coldata$condition)
+shS_NTC_coldata$replicate <- factor(shS_NTC_coldata$replicate)
+shS_NTC_coldata["Sample"] <- rownames(shS_NTC_coldata)
+```
+
+### Prepare count matrix
+```{r Preparing count matrix}
+shS_NTC_countdata = as.matrix(shS_NTC_countdata) 
+#all(rownames(coldata) == colnames(shS_NTC_countdata)) #should print TRUE
+shS_NTC_ddsO <- DESeqDataSetFromMatrix(countData = shS_NTC_countdata, colData = shS_NTC_coldata, design = ~ condition)
+shS_NTC_keep <- rowSums(counts(shS_NTC_ddsO)) > 10
+shS_NTC_ddsO <- shS_NTC_ddsO[shS_NTC_keep,]
+```
+
+### Perform sample-specific Differential Expression
+```{r Performing differential expression}
+
+#Normalization is the part of DESeq command: https://hbctraining.github.io/DGE_workshop/lessons/02_DGE_count_normalization.html
+shS_NTC_ddsO <- DESeq(shS_NTC_ddsO)
+#See size factors estimated by DESeq function: sizeFactors(dds)
+```
+
+### Get Differentially Expressed Genes (DEGs) 
+```{r Getting differential expressed genes,message=FALSE}
+count  = 0
+for (temp1 in unique(shS_NTC_coldata$condition)){
+  for (temp2 in unique(shS_NTC_coldata$condition)){
+    if (temp1 != temp2){
+      count = count + 1
+      print(c(count,temp1,temp2))
+      temp1_2_results <- results(shS_NTC_ddsO, contrast=c("condition",temp1,temp2))
+      #print(temp1_2_results)
+      temp1_2_results = temp1_2_results[order(rownames(temp1_2_results)),]
+      print(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted"))
+      assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted"), temp1_2_results)
+      write.table(temp1_2_results, paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted.txt"), sep="\t", quote = FALSE, append = FALSE)
+      temp1_2_results$threshold <- as.logical(temp1_2_results$padj < 0.05)
+      deseq2_pairwise_temp1_2_results_0.05 <- temp1_2_results[which(temp1_2_results$threshold == TRUE),]
+      print(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05"))
+      print(paste0("",dim(deseq2_pairwise_temp1_2_results_0.05)))
+      assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05"), deseq2_pairwise_temp1_2_results_0.05)
+      write.table(deseq2_pairwise_temp1_2_results_0.05, paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.txt"), sep="\t", quote = FALSE, append = FALSE)
+
+      #Get up and downregulated genes
+      assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.up"), deseq2_pairwise_temp1_2_results_0.05[which(deseq2_pairwise_temp1_2_results_0.05$log2FoldChange > 1),])
+      assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.down"), deseq2_pairwise_temp1_2_results_0.05[which(deseq2_pairwise_temp1_2_results_0.05$log2FoldChange < -1),])
+      print(dim(get(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.up"))))
+      print(dim(get(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.down"))))
+    }
+  }
+}
+```
+
+### Normamalize shS_NTC_ddsO
+```{r Normamalize shS_NTC_ddsO}
+#Normalized separately:
+shS_NTC_ddsONorm <- estimateSizeFactors(shS_NTC_ddsO)
+sizeFactors(shS_NTC_ddsONorm)
+#Export normalized counts
+shS_NTC_ddsONormcounts <- counts(shS_NTC_ddsONorm, normalized=TRUE)
+head(shS_NTC_ddsONormcounts)
+dim(shS_NTC_ddsONormcounts)
+write.table(shS_NTC_ddsONormcounts, "shS_NTC_ddsONormcounts.txt", sep="\t", quote=F, append = F,col.names=F)
+```
+
+### Plot PCA for all the samples new shS_NTC_ddsO
+```{r Plot PCA for all the samples new shS_NTC_ddsO}
+plotPCA(as.matrix(shS_NTC_ddsONormcounts))
+
+ggsave("PCA_shS_NTC_ddsONormcounts.svg", width=5, height=7, units="in", dpi=96)
+shS_NTC_ddsO_se <- SummarizedExperiment(log2(counts(shS_NTC_ddsONorm, normalized=TRUE)),
+                           colData=colData(shS_NTC_ddsONorm))
+# the call to DESeqTransform() is needed to
+# trigger our plotPCA method.
+shS_NTC_ddsO_se_pca <- plotPCA(DESeqTransform(shS_NTC_ddsO_se), returnData=TRUE)
+shS_NTC_ddsO_se_pca["replicate"] <- c(rep(c("rep1","rep2","rep3"),2))
+shS_NTC_ddsO_se_pca["samplenames"] <- shS_NTC_ddsO_se_pca$condition
+percentVarshS_NTC_ddsO_se <- round(100 * attr(shS_NTC_ddsO_se_pca, "percentVar"))
+ggplot(shS_NTC_ddsO_se_pca, aes(PC1, PC2, color=samplenames,shape=replicate)) +
+  geom_point(size=3) +
+  xlab(paste0("PC1: ",percentVarshS_NTC_ddsO_se[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVarshS_NTC_ddsO_se[2],"% variance")) +
+  coord_fixed()+ scale_color_manual(values = c(rep("black",1), rep("#CD534CFF",1)))+
+  theme_bw()+theme(panel.grid.major = element_line(colour = "white"),panel.grid.minor = element_line(colour = "white"))
+ggsave("PCA_shS_NTC_ddsO_secounts.svg", width=5, height=7, units="in", dpi=96)
+```
+
+
+
+### Perform clustering and show data by dendrogram
+```{r Clustering... showing dendrogram...}
+shS_NTC_ddsONormcountsdd <- dist(scale(t(shS_NTC_ddsONormcounts)), method = "euclidean")
+shS_NTC_ddsONormcountshS <- hclust(shS_NTC_ddsONormcountsdd, method = "ward.D")
+svg("Dendrogram_shS_NTC_ddsONormcountshS.svg")
+plot(shS_NTC_ddsONormcountshS)
+dev.off()
+```
+
+### Assign gene coordinates to DE
+```{r Assign gene coordinates to DE}
+for (temp1 in unique(shS_NTC_coldata$condition)){
+  for (temp2 in unique(shS_NTC_coldata$condition)){
+    if (temp1 != temp2){
+      print(paste0(temp1,"_",temp2))
+      deseq2_pairwise_temp1_2_results_0.05_df <- data.frame(get(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05")))
+      deseq2_pairwise_temp1_2_results_0.05_df["ens_gene"] <- rownames(deseq2_pairwise_temp1_2_results_0.05_df)
+      print(dim(deseq2_pairwise_temp1_2_results_0.05_df))
+      deseq2_pairwise_temp1_2_results_0.05_df_gene <- merge(deseq2_pairwise_temp1_2_results_0.05_df, gene_gencode_human_GRCh38, by ="ens_gene")
+      deseq2_pairwise_temp1_2_results_0.05_df_gene <- deseq2_pairwise_temp1_2_results_0.05_df_gene[,c(9,10,11,12,13,1:8)]
+      assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05_gene"), deseq2_pairwise_temp1_2_results_0.05_df_gene)
+      write.table(deseq2_pairwise_temp1_2_results_0.05_df_gene, paste0("deseq2_pairwise_res_",temp1,"_",temp2,"_","sorted_0.05_df_gene.txt"), sep="\t", quote = FALSE, append = FALSE, row.names = F, col.names = F)
+      system(paste0("sort -k1,1 -k2,2n " , "deseq2_pairwise_res_",temp1,"_",temp2,"_","sorted_0.05_df_gene.txt", " > ", "deseq2_pairwise_res_",temp1,"_",temp2,"_","sorted_0.05_df_gene_sorted.txt"))
+    }
+  }
+}
+```
+
+
+### MA Plot
+```{r plotting MA plot}
+temp3list = list()
+for (temp1 in unique(shS_NTC_coldata$condition)){
+  for (temp2 in unique(shS_NTC_coldata$condition)){
+    if (temp1 != temp2){
+      print(paste0(temp1, "_",temp2))
+      plotMA_temp3 <- ggmaplot(get(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted")),
+         fdr = 0.05, fc = 2, size = 0.3,
+         palette = c("#D22B2B", "#1465AC", "darkgray"),
+         genenames = as.vector(unlist(lapply(str_split(rownames(get(paste0("deseq2_pairwise_res_",temp1,"_",temp2,"_","sorted"))), "%"), function(x) x[2]))),
+         legend = "top", top = 20,
+         font.label = c("bold", 5),
+         font.legend = "bold",
+         font.main = "bold",
+         ggtheme = ggplot2::theme_minimal())
+      temp3list[[paste0(temp1, "_",temp2)]]  <- plotMA_temp3
+    }
+  }
+}
+
+pdf(file = "shS_NTC_maplot_plot_list_rnaseq_new.pdf", height = 10, width = 5)
+ggpubr::ggarrange(plotlist = temp3list, ncol=1, nrow=2, common.legend = F, labels=names(temp3list), vjust = 1,hjust=-0.5,font.label = list(size = 10, color = "black", face = "bold", family = NULL))
+dev.off()
+```
+
+
+### Volcano plot
+```{r Volcano plot}
+library(dplyr)
+temp4list = list()
+for (temp1 in unique(shS_NTC_coldata$condition)){
+  for (temp2 in unique(shS_NTC_coldata$condition)){
+    if (temp1 != temp2){
+      print(paste0(temp1, "_", temp2))
+      temp4df <- data.frame(get(paste0("deseq2_pairwise_res_",temp1,"_",temp2,"_","sorted")))
+      temp4df <- temp4df %>% dplyr::mutate(Expression = case_when(log2FoldChange > 1 & padj < 0.05 ~ "Upregulated", log2FoldChange < -1 & padj < 0.05 ~ "Downregulated", TRUE ~ "Unchanged"))
+      temp4df$gene_symbol <- rownames(temp4df)
+      assign(paste0(temp1, "_",temp2,"_pairwise_top_de_genes"), bind_rows(
+        temp4df %>% dplyr::filter(Expression == 'Upregulated') %>%  arrange(padj, desc(abs(log2FoldChange))) %>% head(10),
+        temp4df %>% dplyr::filter(Expression == 'Downregulated') %>% arrange(padj, desc(abs(log2FoldChange))) %>% head(10)
+      ))
+      #Assemble top de genes and full data in one dataframe, required for proper labelling as tested
+      temp4_top_de_genes <- get(paste0(temp1, "_",temp2,"_pairwise_top_de_genes"))
+      temp4_top_de_genes$gene_symbol <- rownames(temp4_top_de_genes)
+      print(temp4_top_de_genes$gene_symbol)
+      temp4_top_de_genes$label <- rownames(temp4_top_de_genes)
+      temp4_top_de_genes <- temp4_top_de_genes[,-c(1:7)]
+      temp4df_labelled <- merge(temp4df, temp4_top_de_genes, by="gene_symbol", all.x= TRUE)
+      temp4df_labelled$labeldiff <- unlist(lapply(strsplit(temp4df_labelled$label, "%"), function(x) x[2]))
+      #Now temp4df_labelled contain all required labelling
+      temp4df_p <- ggplot(temp4df_labelled, aes(log2FoldChange, -log(padj,10))) + geom_point(aes(color = Expression), size = 0.3) + xlab(expression("Log"[2]*"FC")) + ylab(expression("-Log"[10]*"padj")) +
+    scale_color_manual(values = c("dodgerblue3", "gray50", "firebrick3")) +
+    guides(colour = guide_legend(override.aes = list(size=1.5))) + theme_classic() +
+    theme(legend.position="none") + geom_text_repel(data = temp4df_labelled, mapping = aes(log2FoldChange,-log(padj,10), label = labeldiff, size = 0.4))
+      temp4list[[paste0(temp1, "_",temp2)]] <- temp4df_p
+    }
+  }
+}
+
+pdf(file = "shS_NTC_volcano_plot_list_rnaseq_new.pdf", height = 10, width = 10)
+ggpubr::ggarrange(plotlist = temp4list, ncol=1, nrow=2, common.legend = F, labels=names(temp4list), vjust = 1,hjust=-0.5,font.label = list(size = 8, color = "black", face = "bold", family = NULL))
+dev.off()
+
+#While running warning of missing values will come for padj NA
+```
+
+### Functional analysis
+```{r Performing gProfiler2 analysis}
+#Note: p_value output of gost function is Hypergeometric p-value after correction for multiple testing, see https://biit.cs.ut.ee/gprofiler_beta/page/apis#gost_query_results
+# Prepare gostplot using gene symbol as character
+goterm_analysislist <- list()
+for (temp1 in unique(shS_NTC_coldata$condition)){
+  for (temp2 in unique(shS_NTC_coldata$condition)){
+    if (temp1 != temp2){
+      print(paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.up"))
+      assign(paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.up"),gost(query=unlist(lapply(strsplit(rownames(get(paste0("deseq2_pairwise_res_",temp1,"_",temp2,"_","sorted_0.05.up"))), "%"), function(x) x[2])), organism="hsapiens"))
+      print(paste0("gost_pairwise_",temp1, "_",temp2,"_0.05.down"))
+      assign(paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.down"),gost(query=unlist(lapply(strsplit(rownames(get(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.down"))), "%"), function(x) x[2])), organism="hsapiens"))
+      goterm_analysislist[[paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.up")]] <- paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.up")
+      goterm_analysislist[[paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.down")]] <- paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.down")
+    }
+  }
+}
+
+```
+
+
+### Bar plotting with GO:BP terms
+```{r Bar plotting with GO:BP terms}
+temp6list <- list()
+for (names in names(goterm_analysislist)){
+  gost.temp6 <- get(names)
+  gost.temp6.res.sorted <- gost.temp6$result[order(gost.temp6$result$p_value),]
+  gost.temp6.res.sorted["term_name_collapse"] <- paste0(gost.temp6.res.sorted$term_id,"_",gost.temp6.res.sorted$source,"_" ,gsub(" ", ".", gost.temp6.res.sorted$term_name))
+  gost.temp6.res.sorted_gobp <- gost.temp6.res.sorted[which(gost.temp6.res.sorted$source == "GO:BP"),]
+  gost.temp6.res.sorted_gobp_bar <- gost.temp6.res.sorted_gobp[,c(11,3)]
+  gost.temp6.res.sorted_gobp_bar_top <- head(gost.temp6.res.sorted_gobp_bar,10)
+  gost.temp6.res.sorted_gobp_bar_top$p_value <- -log10(gost.temp6.res.sorted_gobp_bar_top$p_value)
+  if((any(grepl('.up', names))) == T){
+    print(names)
+    plotBar_temp6 <- ggbarplot(gost.temp6.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#5d93c4ff", fill = "#5d93c4ff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = gsub("gost.","",names), lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+  temp6list[[names]] <- plotBar_temp6
+  }else{
+    print(names)
+    plotBar_temp6 <- ggbarplot(gost.temp6.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#e58e8eff", fill = "#e58e8eff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = gsub("gost.","",names), lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+  temp6list[[names]] <- plotBar_temp6
+  }
+}
+   
+
+pdf(file = "shS_NTC_gobp_barlot_plot_list_rnaseq_new.pdf", height = 10, width = 20)
+ggpubr::ggarrange(plotlist = temp6list, ncol=2, nrow=2, common.legend = F, labels=names(temp6list), vjust = 1,hjust=-0.5,font.label = list(size = 8, color = "black", face = "bold", family = NULL))
+dev.off()
+```
+
+### Match RNA-Seq and Cut&Run data
+```{r Match RNA-Seq and Cut&RUn data}
+matched_rnaseq_cutnrunlist <- list()
+for (rnaseqdata_deg in ls(pattern = "sorted_0.05_gene")){
+  print(rnaseqdata_deg)
+  temprnaseqdegdf <- get(rnaseqdata_deg)
+  print(temprnaseqdegdf)
+  temprnaseqdegdf["ens"] <- unlist(lapply(strsplit(unlist(lapply(strsplit(temprnaseqdegdf$ens_gene, "%"), function(x) x[1])), ".", fixed =T), function(x) x[1]))
+  temprnaseqdeggenes <- unlist(lapply(strsplit(unlist(lapply(strsplit(temprnaseqdegdf$ens_gene, "%"), function(x) x[1])), ".", fixed =T), function(x) x[1]))
+  for (cutnrun_peaks in names(cutnrunpeaksfile_genes_list)) {
+    tempcutnrungenes <- as.character(unlist(cutnrunpeaksfile_genes_list[cutnrun_peaks]))
+    temprnaseqdeg_cutnrungenes<- intersect(temprnaseqdeggenes, tempcutnrungenes)
+    temprnaseqdegdf_sub <- dplyr::filter(temprnaseqdegdf, ens %in% temprnaseqdeg_cutnrungenes)
+    print(paste0(rnaseqdata_deg, "_" ,cutnrun_peaks))
+    matched_rnaseq_cutnrunlist[[paste0(rnaseqdata_deg, "_" ,cutnrun_peaks)]] <- temprnaseqdegdf_sub$ens_gene
+  }
+}
+
+```
+
+### End of Analysis
+```{r Session info}
+sessionInfo()
+```

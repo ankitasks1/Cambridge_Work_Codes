@@ -1,0 +1,531 @@
+---
+title: "Ma_Lab_RNA_Seq_Bulk_Nuria and Sumaera"
+output: html_document
+date: "2023-04-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+setwd("/mnt/home3/reid/av638/rnaseq/ma_lab_dm6/outfolder/sumnur")
+
+```{r library, message=FALSE}
+load("/mnt/home3/reid/av638/rnaseq/ma_lab_dm6/outfolder/star_salmon/deseq2_qc/deseq2.dds.RData")
+library(DESeq2)
+library(ggplot2)
+library(pheatmap)
+library(plyr)
+library(ggpubr)
+library(splitstackshape)
+library(gprofiler2)
+library(UpSetR)
+library(tidyr)
+library(org.Dm.eg.db)
+library(stringr)
+library(ggrepel)
+library(ChIPseeker)
+library(TxDb.Dmelanogaster.UCSC.dm6.ensGene)
+library(clusterProfiler)
+library(stringi)
+library(data.table)
+library(openxlsx)
+```
+
+
+### Obtain un-normalized counts from dds (output of nextflow nf-core/rnaseq)
+
+```{r Obtaining un-normalized counts from dds}
+precountdata <- counts(dds, normalized=FALSE)
+head(precountdata)
+dim(precountdata)
+colSums(precountdata)
+precountdata <- data.frame(precountdata)
+precountdata["ensID"] <- rownames(precountdata)
+write.table(precountdata, "precountdata.txt", quote = F, append = F, sep="\t")
+```
+
+### Sample status file
+```{r Sample status file}
+sample_status <- fread("sample_status.txt")
+sample_status <- data.frame(sample_status)
+```
+
+
+#Perform VST for full matrix
+```{r VST transform and plot PCA}
+vstNorm <- DESeq2::vst(dds) 
+vstNorm_pca <- plotPCA(vstNorm, intgroup="sample", returnData=TRUE)
+plotPCA(vstNorm, intgroup="sample", returnData=FALSE)
+```
+
+###  Get Individual counts
+```{r Individual counts}
+countdata <- precountdata[,c(1:50)]
+nuria_countdata <- countdata[,c(5,6,37:44)]
+sumaera_countdata <- countdata[,c(45:50)]
+```
+
+# Nuria
+### Create sample-specific coldata object for nuria data
+```{r Creating coldata object nuria}
+nuria_coldata <- data.frame(samples = colData(dds)$sample[c(5,6,37:44)], 
+                           condition = unlist(lapply(strsplit(colData(dds)$sample[c(5,6,37:44)], "_"), 
+                                                     function(x)
+                                                       if (length(x) == 3) {paste0(x[1], "_", x[2])
+                                                       } else if (length(x) == 4) {paste0(x[1], "_", x[2], "_", x[3])
+                                                           } else if (length(x) == 5) {paste0(x[1], "_", x[2], "_", x[3], "_", x[4])})), 
+                           replicate = unlist(lapply(strsplit(colData(dds)$sample[c(5,6,37:44)], "_"),
+                                                     function(x)
+                                                       if (length(x) == 3) {x[3]
+                                                         } else if (length(x) == 4) {x[4]
+                                                           } else if (length(x) == 5) {x[5]})))
+
+#Import sampleinfo
+nuria_coldata <- merge(nuria_coldata, sample_status, by.x="samples", by.y="Sample_ID")
+rownames(nuria_coldata) <- nuria_coldata$samples
+nuria_coldata["samples"] <- rownames(nuria_coldata)
+nuria_coldata$condition <- factor(nuria_coldata$condition)
+nuria_coldata$replicate <- factor(nuria_coldata$replicate)
+nuria_coldata$Sample_Status <- factor(nuria_coldata$Sample_Status)
+#Column should in same order of countdata
+nuria_coldata <- nuria_coldata[c(1:2,9:10,3:8),]
+```
+
+
+### Prepare count matrix for nuria data
+```{r Preparing count matrix nuria}
+nuria_countdata = as.matrix(nuria_countdata) 
+all(rownames(nuria_coldata) == colnames(nuria_countdata)) #should print TRUE
+nuria_ddsO <- DESeqDataSetFromMatrix(countData = nuria_countdata, colData = nuria_coldata, design = ~ Sample_Status)
+nuria_keep <- rowSums(counts(nuria_ddsO)) > 10
+nuria_ddsO <- nuria_ddsO[nuria_keep,]
+```
+
+### Perform DESeq for nuria data
+```{r Performing differential expression nuria}
+#Normalization is the part of DESeq command: https://hbctraining.github.io/DGE_workshop/lessons/02_DGE_count_normalization.html
+nuria_ddsO <- DESeq(nuria_ddsO)
+#See size factors estimated by DESeq function: sizeFactors(dds)
+```
+
+### Perform VST transform and plot PCA nuria data
+```{r VST transform and plot PCA nuria data}
+nuria_vstNorm <- DESeq2::vst(nuria_ddsO) 
+nuria_vstNorm_pca <- plotPCA(nuria_vstNorm, intgroup="samples", returnData=TRUE)
+plotPCA(nuria_vstNorm, intgroup="condition", returnData=FALSE)    
+nuria_vstNorm_pca["replicate"] <- nuria_coldata$replicate
+nuria_vstNorm_pca["condition"] <- nuria_coldata$condition
+nuria_vstNorm_pca["status"] <- nuria_coldata$Sample_Status
+nuria_vstNorm_pca["effect"] <- nuria_coldata$effect
+percentVar_nuria_vstNorm_pca <- round(100 * attr(nuria_vstNorm_pca, "percentVar"))
+ggplot(nuria_vstNorm_pca, aes(PC1, PC2, color=status,shape=replicate)) +
+  geom_point(size=3) +
+  xlab(paste0("PC1: ",percentVar_nuria_vstNorm_pca[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar_nuria_vstNorm_pca[2],"% variance")) +
+  coord_fixed()+ 
+  theme_bw()+theme(panel.grid.major = element_line(colour = "white"),panel.grid.minor = element_line(colour = "white"))
+ggsave("PCA_nuria_vstNorm.svg", width=5, height=7, units="in", dpi=96)
+```
+
+
+
+### Get Differentially Expressed Genes (DEGs) nuria data
+```{r Getting differential expressed genes nuria,message=FALSE}
+DE_analysis_nuria_list <- list()
+
+count  = 0
+for (temp1 in unique(nuria_coldata$Sample_Status)){
+  for (temp2 in unique(nuria_coldata$Sample_Status)){
+    if (temp1 != temp2){
+      count = count + 1
+      print(c(count, temp1, temp2))
+      temp1_2_results <- results(nuria_ddsO, contrast=c("Sample_Status",temp1,temp2))
+      temp1_2_results = temp1_2_results[order(rownames(temp1_2_results)),]
+      print(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted"))
+      #assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted"), temp1_2_results)
+      #write.table(temp1_2_results, paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted.txt"), sep="\t", quote = FALSE, append = FALSE)
+      DE_analysis_nuria_list[[paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted")]] <- temp1_2_results
+      temp1_2_results$threshold <- as.logical(temp1_2_results$padj < 0.05)
+      deseq2_pairwise_temp1_2_results_0.05 <- temp1_2_results[which(temp1_2_results$threshold == TRUE),]
+      print(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05"))
+      print(paste0("",dim(deseq2_pairwise_temp1_2_results_0.05)))
+      DE_analysis_nuria_list[[paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05")]] <- deseq2_pairwise_temp1_2_results_0.05
+      #assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05"), deseq2_pairwise_temp1_2_results_0.05)
+      #write.table(deseq2_pairwise_temp1_2_results_0.05, paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.txt"), sep="\t", quote = FALSE, append = FALSE)
+
+      #Get up and down-regulated genes
+      deseq2_pairwise_temp1_2_results_0.05.up <- deseq2_pairwise_temp1_2_results_0.05[which(deseq2_pairwise_temp1_2_results_0.05$log2FoldChange > 0),]
+      deseq2_pairwise_temp1_2_results_0.05.down <- deseq2_pairwise_temp1_2_results_0.05[which(deseq2_pairwise_temp1_2_results_0.05$log2FoldChange < 0),]
+      #assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.up"), deseq2_pairwise_temp1_2_results_0.05[which(deseq2_pairwise_temp1_2_results_0.05$log2FoldChange > 1),])
+      #assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.down"), deseq2_pairwise_temp1_2_results_0.05[which(deseq2_pairwise_temp1_2_results_0.05$log2FoldChange < -1),])
+      DE_analysis_nuria_list[[paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.up")]] <- deseq2_pairwise_temp1_2_results_0.05.up
+      DE_analysis_nuria_list[[paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.down")]] <- deseq2_pairwise_temp1_2_results_0.05.down
+      print(dim(DE_analysis_nuria_list[[paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.up")]]))
+      print(dim(DE_analysis_nuria_list[[paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.down")]]))
+    }
+  }
+}
+
+combination1 <- c("Hom_Mutant_NC_CG1_1","Hom_Mutant_NC_CG1_2","Hom_Mutant_NCP28_31","Hom_Mutant_BL17500")
+combination2 <- c("Hom_WT_NC_CG1_7")
+
+#Selected
+DE_analysis_nuria_list_sel <- list()
+DE_analysis_nuria_list_sel_DE <- list()
+pairwise_cbind_combinations <- cbind(combination1, combination2)
+for (pairwise_lines in 1:nrow(pairwise_cbind_combinations)){
+  pairwise_combinations <- pairwise_cbind_combinations[pairwise_lines,]
+  print(pairwise_combinations)
+  de_results <- results(nuria_ddsO, contrast=c("Sample_Status", pairwise_combinations))
+  de_results = de_results[order(rownames(de_results)),]
+  print(paste0("deseq2_pairwise_res_",paste0(pairwise_combinations,collapse = "_"), "_sorted"))
+  #assign(paste0("deseq2_pairwise_res_",pairwise_combinations, "_sorted"), de_results)
+  #write.table(de_results, paste0("deseq2_pairwise_res_",pairwise_combinations, "_sorted.txt"), sep="\t", quote = FALSE, append = FALSE)
+  DE_analysis_nuria_list_sel[[paste0("deseq2_pairwise_res_",paste0(pairwise_combinations,collapse = "_"), "_sorted")]] <- de_results
+  de_results$threshold <- as.logical(de_results$padj < 0.05)
+  deseq2_pairwise_de_results_0.05 <- de_results[which(de_results$threshold == TRUE),]
+  print(paste0("deseq2_pairwise_res_",paste0(pairwise_combinations,collapse = "_"), "_sorted_0.05"))
+  print(paste0("",dim(deseq2_pairwise_de_results_0.05)))
+  DE_analysis_nuria_list_sel[[paste0("deseq2_pairwise_res_",paste0(pairwise_combinations,collapse = "_"), "_sorted_0.05")]] <- deseq2_pairwise_de_results_0.05
+  deseq2_pairwise_de_results_0.05_df <- data.frame(deseq2_pairwise_de_results_0.05)
+  deseq2_pairwise_de_results_0.05_df["gene"] <- rownames(deseq2_pairwise_de_results_0.05_df)
+  deseq2_pairwise_de_results_0.05_df <- deseq2_pairwise_de_results_0.05_df[,c(8,1:7)]
+  DE_analysis_nuria_list_sel_DE[[gsub("Hom_", "", paste0(pairwise_combinations,collapse = "_"))]] <- deseq2_pairwise_de_results_0.05_df
+
+  #Get up and down-regulated genes
+  deseq2_pairwise_de_results_0.05.up <- deseq2_pairwise_de_results_0.05[which(deseq2_pairwise_de_results_0.05$log2FoldChange > 0),]
+  deseq2_pairwise_de_results_0.05.down <- deseq2_pairwise_de_results_0.05[which(deseq2_pairwise_de_results_0.05$log2FoldChange < 0),]
+  #assign(paste0("deseq2_pairwise_res_",pairwise_combinations, "_sorted_0.05.up"), deseq2_pairwise_de_results_0.05[which(deseq2_pairwise_de_results_0.05$log2FoldChange > 1),])
+  #assign(paste0("deseq2_pairwise_res_",pairwise_combinations, "_sorted_0.05.down"), deseq2_pairwise_de_results_0.05[which(deseq2_pairwise_de_results_0.05$log2FoldChange < -1),])
+  DE_analysis_nuria_list_sel[[paste0("deseq2_pairwise_res_",paste0(pairwise_combinations,collapse = "_"), "_sorted_0.05.up")]] <- deseq2_pairwise_de_results_0.05.up
+  DE_analysis_nuria_list_sel[[paste0("deseq2_pairwise_res_",paste0(pairwise_combinations,collapse = "_"), "_sorted_0.05.down")]] <- deseq2_pairwise_de_results_0.05.down
+  print(dim(DE_analysis_nuria_list_sel[[paste0("deseq2_pairwise_res_",paste0(pairwise_combinations,collapse = "_"), "_sorted_0.05.up")]]))
+  print(dim(DE_analysis_nuria_list_sel[[paste0("deseq2_pairwise_res_",paste0(pairwise_combinations,collapse = "_"), "_sorted_0.05.down")]]))
+}
+
+write.xlsx(DE_analysis_nuria_list_sel_DE, file = "DE_analysis_nuria_list_sel_DE.xlsx", colNames = TRUE, rowNames = TRUE)
+
+```
+
+### MA Plot nuria data
+```{r plotting MA plot nuria data}
+MA_plot_nuria_list = list()
+for (temp1 in unique(nuria_coldata$Sample_Status)){
+  for (temp2 in unique(nuria_coldata$Sample_Status)){
+    if (temp1 != temp2){
+      print(paste0(temp1, "_",temp2))
+      plotMA_temp3 <- ggmaplot(DE_analysis_nuria_list[[paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted")]],
+         fdr = 0.05, fc = 2, size = 0.3,
+         palette = c("#D22B2B", "#1465AC", "darkgray"),
+         genenames = rownames(DE_analysis_nuria_list[[paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted")]]),
+         legend = "top", top = 20,
+         font.label = c("bold", 5),
+         font.legend = "bold",
+         font.main = "bold",
+         ggtheme = ggplot2::theme_minimal())
+      MA_plot_nuria_list[[paste0(temp1, "_",temp2)]]  <- plotMA_temp3
+    }
+  }
+}
+
+pdf(file = "nuria_maplot_plot_list_rnaseq_new.pdf", height = 50, width = 50)
+ggpubr::ggarrange(plotlist = MA_plot_nuria_list, ncol=11, nrow=6, common.legend = F, labels=names(MA_plot_nuria_list), vjust = 1,hjust=-0.5,font.label = list(size = 10, color = "black", face = "bold", family = NULL))
+dev.off()
+```
+
+
+### Functional analysis nuria data
+```{r Performing gProfiler2 analysis nuria data}
+goterm_analysis_nuria_list <- list()
+for (pairwise_lines in 1:nrow(pairwise_cbind_combinations)){
+  pairwise_combinations <- pairwise_cbind_combinations[pairwise_lines,]
+  print(pairwise_combinations)
+  print(paste0("gost_pairwise_",paste0(pairwise_combinations, collapse = "_"),"_0.05.up"))
+  gost_pairwise_combinations_0.05.up <- gost(query=rownames(DE_analysis_nuria_list_sel[[paste0("deseq2_pairwise_res_",paste0(pairwise_combinations, collapse = "_"),"_","sorted_0.05.up")]]), organism="dmelanogaster")
+  print(paste0("gost_pairwise_",paste0(pairwise_combinations, collapse = "_"),"_0.05.down"))
+  gost_pairwise_combinations_0.05.down <- gost(query=rownames(DE_analysis_nuria_list_sel[[paste0("deseq2_pairwise_res_",paste0(pairwise_combinations, collapse = "_"),"_","sorted_0.05.down")]]), organism="dmelanogaster")
+  goterm_analysis_nuria_list[[paste0("gost_pairwise_",paste0(pairwise_combinations, collapse = "_"),"_0.05.up")]] <- gost_pairwise_combinations_0.05.up
+  goterm_analysis_nuria_list[[paste0("gost_pairwise_",paste0(pairwise_combinations, collapse = "_"),"_0.05.down")]] <- gost_pairwise_combinations_0.05.down
+}
+
+gost_pairwise_Hom_Mutant_NC_CG1_1_Hom_WT_NC_CG1_7 <- gost(query=rownames(DE_analysis_nuria_list$deseq2_pairwise_res_Hom_Mutant_NC_CG1_1_Hom_WT_NC_CG1_7_sorted_0.05), organism="dmelanogaster")
+gostplot(gost_pairwise_Hom_Mutant_NC_CG1_1_Hom_WT_NC_CG1_7)
+gost_pairwise_Hom_Mutant_NC_CG1_2_Hom_WT_NC_CG1_7 <- gost(query=rownames(DE_analysis_nuria_list$deseq2_pairwise_res_Hom_Mutant_NC_CG1_2_Hom_WT_NC_CG1_7_sorted_0.05), organism="dmelanogaster")
+gostplot(gost_pairwise_Hom_Mutant_NC_CG1_2_Hom_WT_NC_CG1_7)
+gost_pairwise_Hom_Mutant_NCP28_31_Hom_WT_NC_CG1_7 <- gost(query=rownames(DE_analysis_nuria_list$deseq2_pairwise_res_Hom_Mutant_NCP28_31_Hom_WT_NC_CG1_7_sorted_0.05), organism="dmelanogaster")
+gostplot(gost_pairwise_Hom_Mutant_NCP28_31_Hom_WT_NC_CG1_7)
+gost_pairwise_Hom_Mutant_BL17500_Hom_WT_NC_CG1_7 <- gost(query=rownames(DE_analysis_nuria_list$deseq2_pairwise_res_Hom_Mutant_BL17500_Hom_WT_NC_CG1_7_sorted_0.05), organism="dmelanogaster")
+gostplot(gost_pairwise_Hom_Mutant_BL17500_Hom_WT_NC_CG1_7)
+```
+
+
+### Bar plotting with GO:BP terms nuria data
+```{r Bar plotting with GO:BP terms nuria}
+goterm_barplot_nuria_list <- list()
+gost_gobp_bar_top_nuria_list <- list()
+for (names in names(goterm_analysis_nuria_list)){
+  print(names)
+  gost.temp4 <- goterm_analysis_nuria_list[[names]]
+  gost.temp4.res.sorted <- gost.temp4$result[order(gost.temp4$result$p_value),]
+  gost.temp4.res.sorted["term_name_collapse"] <- paste0(gost.temp4.res.sorted$term_id,"_",gost.temp4.res.sorted$source,"_" ,gsub(" ", ".", gost.temp4.res.sorted$term_name))
+  gost.temp4.res.sorted_gobp <- gost.temp4.res.sorted[which(gost.temp4.res.sorted$source == "GO:BP"),]
+  gost.temp4.res.sorted_gobp_bar <- gost.temp4.res.sorted_gobp[,c(11,3)]
+  gost.temp4.res.sorted_gobp_bar_top <- head(gost.temp4.res.sorted_gobp_bar,10)
+  gost.temp4.res.sorted_gobp_bar_top$p_value <- -log10(gost.temp4.res.sorted_gobp_bar_top$p_value)
+  gost_gobp_bar_top_nuria_list[[names]] <- gost.temp4.res.sorted_gobp_bar_top
+  if((any(grepl('.up', names))) == T){
+    print(names)
+    plotBar_temp4 <- ggbarplot(gost.temp4.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#5d93c4ff", fill = "#5d93c4ff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = gsub("gost.","",names), lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+  goterm_barplot_nuria_list[[names]] <- plotBar_temp4
+  }else{
+    print(names)
+    plotBar_temp4 <- ggbarplot(gost.temp4.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#e58e8eff", fill = "#e58e8eff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = gsub("gost.","",names), lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+  goterm_barplot_nuria_list[[names]] <- plotBar_temp4
+  }
+}
+   
+
+pdf(file = "nuria_gobp_barlot_plot_list_rnaseq.pdf", height = 20, width = 40)
+ggpubr::ggarrange(plotlist = goterm_barplot_nuria_list, ncol=5, nrow=5, common.legend = F, labels=names(goterm_barplot_nuria_list), vjust = 1,hjust=-0.5,font.label = list(size = 8, color = "black", face = "bold", family = NULL))
+dev.off()
+```
+
+
+### Identify common DE genes: All combinations nuria data
+```{r Plotting common DE genes between different knockouts nuria data}
+upset_plot_nuria_list = list()
+for (status1 in unique(as.character(nuria_coldata$Sample_Status))){
+  for (status2 in unique(as.character(nuria_coldata$Sample_Status))){
+    if (status1 != status2){
+      upset_plot_nuria_list[[paste0(status1, "_",status2,".up")]] <- rownames(DE_analysis_nuria_list_sel[[paste0("deseq2_pairwise_res_",paste0(status1, "_",status2,collapse = "_"), "_sorted_0.05.up")]])
+      upset_plot_nuria_list[[paste0(status1, "_",status2,".down")]] <- rownames(DE_analysis_nuria_list_sel[[paste0("deseq2_pairwise_res_",paste0(status1, "_",status2,collapse = "_"), "_sorted_0.05.down")]])
+    }
+  }
+}
+
+pdf("upset_plot_nuria_deregulatedgenes.pdf", width=9, height=7)
+upset(fromList(upset_plot_nuria_list),nsets = 12, order.by = "freq",number.angles = 0, empty.intersections = "on", keep.order = TRUE)
+dev.off()
+```
+
+# Sumaera
+### Create sample-specific coldata object for sumaera data
+```{r Creating coldata object sumaera}
+sumaera_coldata <- data.frame(samples = colData(dds)$sample[c(45:50)], 
+                           condition = unlist(lapply(strsplit(colData(dds)$sample[c(45:50)], "_"), 
+                                                     function(x) 
+                                                       if (x[4] == "1") {paste0(x[1],"_",x[2],"_",x[3])} 
+                                                     else if  (x[4] == "2") {paste0(x[1],"_",x[2],"_",x[3])} 
+                                                     else if  (x[4] != "2") {paste0(x[1],"_",x[2],"_",x[3], "_",gsub("1","",gsub("2","",x[4])))}))
+, 
+                           replicate = unlist(lapply(strsplit(colData(dds)$sample[c(45:50)], "_"), 
+              function(x) 
+                  if (x[4] == "1") {x[4]} 
+              else if  (x[4] == "2") {x[4]} 
+              else if  (x[4] != "2") {gsub("CYO","",gsub("MO","",x[4]))})))
+#Import sampleinfo
+sumaera_coldata <- merge(sumaera_coldata, sample_status, by.x="samples", by.y="Sample_ID")
+rownames(sumaera_coldata) <- sumaera_coldata$samples
+sumaera_coldata["samples"] <- rownames(sumaera_coldata)
+sumaera_coldata$condition <- factor(sumaera_coldata$condition)
+sumaera_coldata$replicate <- factor(sumaera_coldata$replicate)
+sumaera_coldata$Sample_Status <- factor(sumaera_coldata$Sample_Status)
+
+```
+
+### Prepare count matrix for sumaera data
+```{r Preparing count matrix sumaera}
+sumaera_countdata = as.matrix(sumaera_countdata) 
+all(rownames(sumaera_coldata) == colnames(sumaera_countdata)) #should print TRUE
+sumaera_ddsO <- DESeqDataSetFromMatrix(countData = sumaera_countdata, colData = sumaera_coldata, design = ~ Sample_Status)
+sumaera_keep <- rowSums(counts(sumaera_ddsO)) > 10
+sumaera_ddsO <- sumaera_ddsO[sumaera_keep,]
+```
+
+### Perform DESeq for sumaera data
+```{r Performing differential expression sumaera}
+#Normalization is the part of DESeq command: https://hbctraining.github.io/DGE_workshop/lessons/02_DGE_count_normalization.html
+sumaera_ddsO <- DESeq(sumaera_ddsO)
+#See size factors estimated by DESeq function: sizeFactors(dds)
+```
+
+### Perform VST transform and plot PCA sumaera data
+```{r VST transform and plot PCA sumaera data}
+sumaera_vstNorm <- DESeq2::vst(sumaera_ddsO) 
+sumaera_vstNorm_pca <- plotPCA(sumaera_vstNorm, intgroup="samples", returnData=TRUE)
+plotPCA(sumaera_vstNorm, intgroup="condition", returnData=FALSE)
+sumaera_vstNorm_pca["replicate"] <- sumaera_coldata$replicate
+sumaera_vstNorm_pca["condition"] <- sumaera_coldata$condition
+sumaera_vstNorm_pca["status"] <- sumaera_coldata$Sample_Status
+sumaera_vstNorm_pca["effect"] <- sumaera_coldata$effect
+percentVar_sumaera_vstNorm_pca <- round(100 * attr(sumaera_vstNorm_pca, "percentVar"))
+ggplot(sumaera_vstNorm_pca, aes(PC1, PC2, color=status,shape=replicate)) +
+  geom_point(size=3) +
+  xlab(paste0("PC1: ",percentVar_sumaera_vstNorm_pca[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar_sumaera_vstNorm_pca[2],"% variance")) +
+  coord_fixed()+ 
+  theme_bw()+theme(panel.grid.major = element_line(colour = "white"),panel.grid.minor = element_line(colour = "white"))
+ggsave("PCA_sumaera_vstNorm.svg", width=5, height=7, units="in", dpi=96)
+```
+
+
+### Get Differentially Expressed Genes (DEGs) sumaera data
+```{r Getting differential expressed genes sumaera,message=FALSE}
+DE_analysis_sumaera_list <- list()
+count  = 0
+for (temp1 in unique(sumaera_coldata$Sample_Status)){
+  for (temp2 in unique(sumaera_coldata$Sample_Status)){
+    if (temp1 != temp2){
+      count = count + 1
+      print(c(count, temp1, temp2))
+      temp1_2_results <- results(sumaera_ddsO, contrast=c("Sample_Status",temp1,temp2))
+      temp1_2_results = temp1_2_results[order(rownames(temp1_2_results)),]
+      print(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted"))
+      #assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted"), temp1_2_results)
+      #write.table(temp1_2_results, paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted.txt"), sep="\t", quote = FALSE, append = FALSE)
+      DE_analysis_sumaera_list[[paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted")]] <- temp1_2_results
+      temp1_2_results$threshold <- as.logical(temp1_2_results$padj < 0.05)
+      deseq2_pairwise_temp1_2_results_0.05 <- temp1_2_results[which(temp1_2_results$threshold == TRUE),]
+      print(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05"))
+      print(paste0("",dim(deseq2_pairwise_temp1_2_results_0.05)))
+      DE_analysis_sumaera_list[[paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05")]] <- deseq2_pairwise_temp1_2_results_0.05
+      #assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05"), deseq2_pairwise_temp1_2_results_0.05)
+      #write.table(deseq2_pairwise_temp1_2_results_0.05, paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.txt"), sep="\t", quote = FALSE, append = FALSE)
+
+      #Get up and down-regulated genes
+      deseq2_pairwise_temp1_2_results_0.05.up <- deseq2_pairwise_temp1_2_results_0.05[which(deseq2_pairwise_temp1_2_results_0.05$log2FoldChange > 0),]
+      deseq2_pairwise_temp1_2_results_0.05.down <- deseq2_pairwise_temp1_2_results_0.05[which(deseq2_pairwise_temp1_2_results_0.05$log2FoldChange < 0),]
+      #assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.up"), deseq2_pairwise_temp1_2_results_0.05[which(deseq2_pairwise_temp1_2_results_0.05$log2FoldChange > 1),])
+      #assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.down"), deseq2_pairwise_temp1_2_results_0.05[which(deseq2_pairwise_temp1_2_results_0.05$log2FoldChange < -1),])
+      DE_analysis_sumaera_list[[paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.up")]] <- deseq2_pairwise_temp1_2_results_0.05.up
+      DE_analysis_sumaera_list[[paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.down")]] <- deseq2_pairwise_temp1_2_results_0.05.down
+      print(dim(DE_analysis_sumaera_list[[paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.up")]]))
+      print(dim(DE_analysis_sumaera_list[[paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.down")]]))
+    }
+  }
+}
+
+combination1 <- c("Het_SR_MO_CYO", "Hom_SR_MO_MO")
+combination2 <- c("WT_SR_W1118")
+
+#Selected
+DE_analysis_sumaera_list_sel <- list()
+pairwise_cbind_combinations <- cbind(combination1, combination2)
+for (pairwise_lines in 1:nrow(pairwise_cbind_combinations)){
+  pairwise_combinations <- pairwise_cbind_combinations[pairwise_lines,]
+  print(pairwise_combinations)
+  de_results <- results(sumaera_ddsO, contrast=c("Sample_Status", pairwise_combinations))
+  de_results = de_results[order(rownames(de_results)),]
+  print(paste0("deseq2_pairwise_res_",paste0(pairwise_combinations,collapse = "_"), "_sorted"))
+  #assign(paste0("deseq2_pairwise_res_",pairwise_combinations, "_sorted"), de_results)
+  #write.table(de_results, paste0("deseq2_pairwise_res_",pairwise_combinations, "_sorted.txt"), sep="\t", quote = FALSE, append = FALSE)
+  DE_analysis_sumaera_list_sel[[paste0("deseq2_pairwise_res_",paste0(pairwise_combinations,collapse = "_"), "_sorted")]] <- de_results
+  de_results$threshold <- as.logical(de_results$padj < 0.05)
+  deseq2_pairwise_de_results_0.05 <- de_results[which(de_results$threshold == TRUE),]
+  print(paste0("deseq2_pairwise_res_",paste0(pairwise_combinations,collapse = "_"), "_sorted_0.05"))
+  print(paste0("",dim(deseq2_pairwise_de_results_0.05)))
+  DE_analysis_sumaera_list_sel[[paste0("deseq2_pairwise_res_",paste0(pairwise_combinations,collapse = "_"), "_sorted_0.05")]] <- deseq2_pairwise_de_results_0.05
+  #assign(paste0("deseq2_pairwise_res_",pairwise_combinations, "_sorted_0.05"), deseq2_pairwise_de_results_0.05)
+  #write.table(deseq2_pairwise_de_results_0.05, paste0("deseq2_pairwise_res_",pairwise_combinations, "_sorted_0.05.txt"), sep="\t", quote = FALSE, append = FALSE)
+  
+  #Get up and down-regulated genes
+  deseq2_pairwise_de_results_0.05.up <- deseq2_pairwise_de_results_0.05[which(deseq2_pairwise_de_results_0.05$log2FoldChange > 0),]
+  deseq2_pairwise_de_results_0.05.down <- deseq2_pairwise_de_results_0.05[which(deseq2_pairwise_de_results_0.05$log2FoldChange < 0),]
+  #assign(paste0("deseq2_pairwise_res_",pairwise_combinations, "_sorted_0.05.up"), deseq2_pairwise_de_results_0.05[which(deseq2_pairwise_de_results_0.05$log2FoldChange > 1),])
+  #assign(paste0("deseq2_pairwise_res_",pairwise_combinations, "_sorted_0.05.down"), deseq2_pairwise_de_results_0.05[which(deseq2_pairwise_de_results_0.05$log2FoldChange < -1),])
+  DE_analysis_sumaera_list_sel[[paste0("deseq2_pairwise_res_",paste0(pairwise_combinations,collapse = "_"), "_sorted_0.05.up")]] <- deseq2_pairwise_de_results_0.05.up
+  DE_analysis_sumaera_list_sel[[paste0("deseq2_pairwise_res_",paste0(pairwise_combinations,collapse = "_"), "_sorted_0.05.down")]] <- deseq2_pairwise_de_results_0.05.down
+  print(dim(DE_analysis_sumaera_list_sel[[paste0("deseq2_pairwise_res_",paste0(pairwise_combinations,collapse = "_"), "_sorted_0.05.up")]]))
+  print(dim(DE_analysis_sumaera_list_sel[[paste0("deseq2_pairwise_res_",paste0(pairwise_combinations,collapse = "_"), "_sorted_0.05.down")]]))
+}
+```
+
+### MA Plot sumaera data
+```{r plotting MA plot sumaera data}
+MA_plot_sumaera_list = list()
+for (temp1 in unique(sumaera_coldata$Sample_Status)){
+  for (temp2 in unique(sumaera_coldata$Sample_Status)){
+    if (temp1 != temp2){
+      print(paste0(temp1, "_",temp2))
+      plotMA_temp3 <- ggmaplot(DE_analysis_sumaera_list[[paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted")]],
+         fdr = 0.05, fc = 2, size = 0.3,
+         palette = c("#D22B2B", "#1465AC", "darkgray"),
+         genenames = rownames(DE_analysis_sumaera_list[[paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted")]]),
+         legend = "top", top = 20,
+         font.label = c("bold", 5),
+         font.legend = "bold",
+         font.main = "bold",
+         ggtheme = ggplot2::theme_minimal())
+      MA_plot_sumaera_list[[paste0(temp1, "_",temp2)]]  <- plotMA_temp3
+    }
+  }
+}
+
+pdf(file = "sumaera_maplot_plot_list_rnaseq_new.pdf", height = 50, width = 50)
+ggpubr::ggarrange(plotlist = MA_plot_sumaera_list, ncol=11, nrow=6, common.legend = F, labels=names(MA_plot_sumaera_list), vjust = 1,hjust=-0.5,font.label = list(size = 10, color = "black", face = "bold", family = NULL))
+dev.off()
+```
+
+### Functional analysis sumaera data
+```{r Performing gProfiler2 analysis sumaera data}
+goterm_analysis_sumaera_list <- list()
+for (pairwise_lines in 1:nrow(pairwise_cbind_combinations)){
+  pairwise_combinations <- pairwise_cbind_combinations[pairwise_lines,]
+  print(pairwise_combinations)
+  print(paste0("gost_pairwise_",paste0(pairwise_combinations, collapse = "_"),"_0.05.up"))
+  gost_pairwise_combinations_0.05.up <- gost(query=rownames(DE_analysis_sumaera_list_sel[[paste0("deseq2_pairwise_res_",paste0(pairwise_combinations, collapse = "_"),"_","sorted_0.05.up")]]), organism="dmelanogaster")
+  print(paste0("gost_pairwise_",paste0(pairwise_combinations, collapse = "_"),"_0.05.down"))
+  gost_pairwise_combinations_0.05.down <- gost(query=rownames(DE_analysis_sumaera_list_sel[[paste0("deseq2_pairwise_res_",paste0(pairwise_combinations, collapse = "_"),"_","sorted_0.05.down")]]), organism="dmelanogaster")
+  goterm_analysis_sumaera_list[[paste0("gost_pairwise_",paste0(pairwise_combinations, collapse = "_"),"_0.05.up")]] <- gost_pairwise_combinations_0.05.up
+  goterm_analysis_sumaera_list[[paste0("gost_pairwise_",paste0(pairwise_combinations, collapse = "_"),"_0.05.down")]] <- gost_pairwise_combinations_0.05.down
+}
+```
+
+### Bar plotting with GO:BP terms sumaera data
+```{r Bar plotting with GO:BP terms sumaera}
+goterm_barplot_sumaera_list <- list()
+gost_gobp_bar_top_sumaera_list <- list()
+for (names in names(goterm_analysis_sumaera_list)){
+  print(names)
+  gost.temp4 <- goterm_analysis_sumaera_list[[names]]
+  gost.temp4.res.sorted <- gost.temp4$result[order(gost.temp4$result$p_value),]
+  gost.temp4.res.sorted["term_name_collapse"] <- paste0(gost.temp4.res.sorted$term_id,"_",gost.temp4.res.sorted$source,"_" ,gsub(" ", ".", gost.temp4.res.sorted$term_name))
+  gost.temp4.res.sorted_gobp <- gost.temp4.res.sorted[which(gost.temp4.res.sorted$source == "GO:BP"),]
+  gost.temp4.res.sorted_gobp_bar <- gost.temp4.res.sorted_gobp[,c(11,3)]
+  gost.temp4.res.sorted_gobp_bar_top <- head(gost.temp4.res.sorted_gobp_bar,10)
+  gost.temp4.res.sorted_gobp_bar_top$p_value <- -log10(gost.temp4.res.sorted_gobp_bar_top$p_value)
+  gost_gobp_bar_top_sumaera_list[[names]] <- gost.temp4.res.sorted_gobp_bar_top
+  if((any(grepl('.up', names))) == T){
+    print(names)
+    plotBar_temp4 <- ggbarplot(gost.temp4.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#5d93c4ff", fill = "#5d93c4ff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = gsub("gost.","",names), lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+  goterm_barplot_sumaera_list[[names]] <- plotBar_temp4
+  }else{
+    print(names)
+    plotBar_temp4 <- ggbarplot(gost.temp4.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#e58e8eff", fill = "#e58e8eff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = gsub("gost.","",names), lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+  goterm_barplot_sumaera_list[[names]] <- plotBar_temp4
+  }
+}
+   
+
+pdf(file = "sumaera_gobp_barlot_plot_list_rnaseq.pdf", height = 20, width = 40)
+ggpubr::ggarrange(plotlist = goterm_barplot_sumaera_list, ncol=5, nrow=5, common.legend = F, labels=names(goterm_barplot_sumaera_list), vjust = 1,hjust=-0.5,font.label = list(size = 8, color = "black", face = "bold", family = NULL))
+dev.off()
+```
+
+
+### Identify common DE genes: All combinations sumaera data
+```{r Plotting common DE genes between different knockouts sumaera data}
+upset_plot_sumaera_list = list()
+for (status1 in unique(as.character(sumaera_coldata$Sample_Status))){
+  for (status2 in unique(as.character(sumaera_coldata$Sample_Status))){
+    if (status1 != status2){
+      upset_plot_sumaera_list[[paste0(status1, "_",status2,".up")]] <- rownames(DE_analysis_sumaera_list_sel[[paste0("deseq2_pairwise_res_",paste0(status1, "_",status2,collapse = "_"), "_sorted_0.05.up")]])
+      upset_plot_sumaera_list[[paste0(status1, "_",status2,".down")]] <- rownames(DE_analysis_sumaera_list_sel[[paste0("deseq2_pairwise_res_",paste0(status1, "_",status2,collapse = "_"), "_sorted_0.05.down")]])
+    }
+  }
+}
+
+pdf("upset_plot_sumaera_deregulatedgenes.pdf", width=9, height=7)
+upset(fromList(upset_plot_sumaera_list),nsets = 12, order.by = "freq",number.angles = 0, empty.intersections = "on", keep.order = TRUE)
+dev.off()
+```
