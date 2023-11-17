@@ -154,6 +154,26 @@ deseq2_atacseqkd_de_shCRAMP1_shControl_0.05_fc_down_anno <- merge(deseq2_atacseq
 deseq2_atacseqkd_de_shSUZ12_shControl_0.05_fc_up_anno <- merge(deseq2_atacseqkd_de_shSUZ12_shControl_0.05_fc_up, atacseqkd_consensus_peaks.gene, by="interval")
 deseq2_atacseqkd_de_shSUZ12_shControl_0.05_fc_down_anno <- merge(deseq2_atacseqkd_de_shSUZ12_shControl_0.05_fc_down, atacseqkd_consensus_peaks.gene, by="interval")
 
+# For extracting DARs coordinates HOMER outputs can serve thd purpose, only peak coordinates which are DARs need to be extracted
+deseq2_atacseqkd_de_shCRAMP1_shControl_0.05_annotated <- merge(deseq2_atacseqkd_de_shCRAMP1_shControl_0.05_fc_df, atacseqkd_consensus_peaks.mLb.clN.annotatePeaks, by="interval")
+deseq2_atacseqkd_de_shCRAMP1_shControl_0.05_annotated <- deseq2_atacseqkd_de_shCRAMP1_shControl_0.05_annotated[,c(9:11,1)]
+deseq2_atacseqkd_de_shCRAMP1_shControl_0.05_annotated_ext <- deseq2_atacseqkd_de_shCRAMP1_shControl_0.05_annotated
+deseq2_atacseqkd_de_shCRAMP1_shControl_0.05_annotated_ext$Start <- deseq2_atacseqkd_de_shCRAMP1_shControl_0.05_annotated_ext$Start - 1000
+deseq2_atacseqkd_de_shCRAMP1_shControl_0.05_annotated_ext$End <- deseq2_atacseqkd_de_shCRAMP1_shControl_0.05_annotated_ext$End + 1000
+
+write.table(deseq2_atacseqkd_de_shCRAMP1_shControl_0.05_annotated_ext, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/deseq2_atacseqkd_de_shCRAMP1_shControl_0.05_annotated_ext.bed", sep = "\t", append = F, quote = F, row.names = F, col.names = F)
+
+# Take only chr  atacseq peaks i.e. consensus_peaks.mLb.clN.sorted.chr.bed
+atacseq_consensus_peaks.mLb.clN.bed <- data.frame(fread("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/macs2/broad_peak/consensus/consensus_peaks.mLb.clN.sorted.chr.bed", header = F))
+colnames(atacseq_consensus_peaks.mLb.clN.bed) <- c("chr", "Start", "End", "interval", "q", "strand")
+deseq2_atacseqkd_de_shCRAMP1_shControl_0.05_peaks <- merge(deseq2_atacseqkd_de_shCRAMP1_shControl_0.05_fc_df, atacseq_consensus_peaks.mLb.clN.bed, by="interval")
+deseq2_atacseqkd_de_shCRAMP1_shControl_0.05_peaks <- deseq2_atacseqkd_de_shCRAMP1_shControl_0.05_peaks[,c(9:11,1)]
+deseq2_atacseqkd_de_shCRAMP1_shControl_0.05_peaks_ext <- deseq2_atacseqkd_de_shCRAMP1_shControl_0.05_peaks
+deseq2_atacseqkd_de_shCRAMP1_shControl_0.05_peaks_ext$Start <- deseq2_atacseqkd_de_shCRAMP1_shControl_0.05_peaks_ext$Start - 1000
+deseq2_atacseqkd_de_shCRAMP1_shControl_0.05_peaks_ext$End <- deseq2_atacseqkd_de_shCRAMP1_shControl_0.05_peaks_ext$End + 1000
+
+write.table(deseq2_atacseqkd_de_shCRAMP1_shControl_0.05_peaks_ext, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/deseq2_atacseqkd_de_shCRAMP1_shControl_0.05_peaks_ext.bed", sep = "\t", append = F, quote = F, row.names = F, col.names = F)
+
 
 deseq2_atacseqkd_de_shCRAMP1_shControl_0.05_anno_nearest <- deseq2_atacseqkd_de_shCRAMP1_shControl_0.05_anno %>% dplyr::filter(Distance < 5000 )
 deseq2_atacseqkd_de_shSUZ12_shControl_0.05_anno_nearest <- deseq2_atacseqkd_de_shSUZ12_shControl_0.05_anno %>% dplyr::filter(Distance < 5000 )
@@ -1759,7 +1779,8 @@ cutnrunKD_myCPM_anno_nearest_agg <- aggregate(cutnrunKD_myCPM_anno_nearest[,c(2:
 rownames(cutnrunKD_myCPM_anno_nearest_agg) <- cutnrunKD_myCPM_anno_nearest_agg$Group.1
 cutnrunKD_myCPM_anno_nearest_agg_log <- log(cutnrunKD_myCPM_anno_nearest_agg[,c(2:4)] + 1,2)
 cutnrunKD_myCPM_anno_nearest_agg_log["Group.1"] <- rownames(cutnrunKD_myCPM_anno_nearest_agg_log)
-
+cutnrunKD_myCPM_anno_nearest_agg_log["H3K27me3_shCRAMP1_shControl"] <- cutnrunKD_myCPM_anno_nearest_agg_log$shCRAMP1_H3K27me3 - cutnrunKD_myCPM_anno_nearest_agg_log$shControl_H3K27me3
+cutnrunKD_myCPM_anno_nearest_agg_log["H3K27me3_shSUZ12_shControl"] <- cutnrunKD_myCPM_anno_nearest_agg_log$shSUZ12_H3K27me3 - cutnrunKD_myCPM_anno_nearest_agg_log$shControl_H3K27me3
 
 sel_mpgd_genes_rkdc_rkds <- merge(deseq2_rnaseqde_shC1_c1509_0.05_fc_df, deseq2_rnaseqde_shS_c1509_0.05_fc_df, by.x="gene", by.y="gene", all.x=TRUE, all.y=TRUE)
 sel_mpgd_genes_rkdc_rkds <- sel_mpgd_genes_rkdc_rkds[,c(1,3,10)]
@@ -1782,33 +1803,90 @@ rownames(sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct) <- sel_mpgd_genes_rkdc_r
 
 #remove Y_RNA
 sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all <- sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct[which(sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct$gene != "Y_RNA"),]
-
+#Heatmap(as.matrix(sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all[,c(2:6, 10:11,16:18)]), na_col = "yellow", row_names_gp = gpar(fontsize = 5), cluster_columns = FALSE)
 
 
 library(ComplexHeatmap)
-sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_mat1 <- Heatmap(as.matrix(sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all[,c(3:5)]), na_col = "white", row_names_gp = gpar(fontsize = 5))
-sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_mat2 <- Heatmap(as.matrix(sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all[,c(6:7)]), na_col = "white", row_names_gp = gpar(fontsize = 5))
-sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_mat3 <- Heatmap(as.matrix(sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all[,c(8:11)]), na_col = "white", row_names_gp = gpar(fontsize = 5))
+sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_mat1 <- Heatmap(as.matrix(sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all[,c(2:6)]), na_col = "white", row_names_gp = gpar(fontsize = 5), row_km = 3)
+sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_mat2 <- Heatmap(as.matrix(sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all[,c(10:11)]), na_col = "white", row_names_gp = gpar(fontsize = 5), row_km = 3)
+sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_mat3 <- Heatmap(as.matrix(sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all[,c(16:18)]), na_col = "white", row_names_gp = gpar(fontsize = 5), row_km = 3)
 
 sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_mat1 + sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_mat2 + sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_mat3
 
 #complex_heatmap_sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_ch.pdf
 
+# sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_informative_mat <- Heatmap(as.matrix(sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_informative[,c(2:6, 10:11,16:18)]), na_col = "white", row_names_gp = gpar(fontsize = 5), cluster_columns = FALSE)
+# Heatmap_sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_informative_mat.pdf
 
-#All predictable
-sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_predictable <- na.omit(sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all)
 
-# Some predictable
-sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_somepredictable <- sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all[complete.cases(sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all[, c("rkd_shC1_c1509","akd_shCRAMP1_shControl")]), ]
+#All informative
+sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_informative <- na.omit(sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all)
+
+Heatmap(as.matrix(sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_informative[,c(2:6, 10:11,16:18)]), na_col = "white", row_names_gp = gpar(fontsize = 5))
+
 library(ComplexHeatmap)
-sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_somepredictable_mat1 <- Heatmap(as.matrix(sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_somepredictable[,c(3:5)]), na_col = "white", row_names_gp = gpar(fontsize = 5))
-sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_somepredictable_mat2 <- Heatmap(as.matrix(sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_somepredictable[,c(6:7)]), na_col = "white", row_names_gp = gpar(fontsize = 5))
-sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_somepredictable_mat3 <- Heatmap(as.matrix(sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_somepredictable[,c(8:11)]), na_col = "white", row_names_gp = gpar(fontsize = 5))
+sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_informative_mat1 <- Heatmap(as.matrix(sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_informative[,c(2:6)]), na_col = "white", row_names_gp = gpar(fontsize = 5))
+sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_informative_mat2 <- Heatmap(as.matrix(sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_informative[,c(10:11)]), na_col = "white", row_names_gp = gpar(fontsize = 5))
+sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_informative_mat3 <- Heatmap(as.matrix(sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_informative[,c(16:18)]), na_col = "white", row_names_gp = gpar(fontsize = 5))
+
+sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_informative_mat1 + sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_informative_mat2 + sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_informative_mat3
+
+#complex_heatmap_sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_informative_ch.pdf
+
+col_fun = colorRamp2(c(-10, 0, 10), c("blue", "white", "red"))
+col_fun2 = colorRamp2(c(-2, 0, 2), c("blue", "white", "red"))
+# Some predictable
+sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_somepredictable <- sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all[complete.cases(sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all[, c("rkd_shC1_c1509")]), ]
+library(ComplexHeatmap)
+sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_somepredictable_mat1 <- Heatmap(as.matrix(sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_somepredictable[,c(2:6)]), na_col = "yellow", row_names_gp = gpar(fontsize = 5), cluster_columns = FALSE, col = col_fun)
+sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_somepredictable_mat2 <- Heatmap(as.matrix(sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_somepredictable[,c(10:11)]), na_col = "yellow", row_names_gp = gpar(fontsize = 5), cluster_columns = FALSE, col = col_fun2)
+sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_somepredictable_mat3 <- Heatmap(as.matrix(sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_somepredictable[,c(16:18)]), na_col = "yellow", row_names_gp = gpar(fontsize = 5), cluster_columns = FALSE, col = col_fun)
 
 sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_somepredictable_mat1 + sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_somepredictable_mat2 + sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_somepredictable_mat3
 
 #complex_heatmap_sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_somepredictable_ch.pdf
+#complex_heatmap_sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_somepredictable_mat1.pdf
+sel_tree_rkdc_rkds_akdc_akds_cko_sub <- as.matrix(sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_somepredictable[,c(2:6)])
+breaksList3 = seq(-10, 10, by = 0.01)
 
+# pheatmap_sel_tree_rkdc_rkds_akdc_akds_cko_sub <- pheatmap(sel_tree_rkdc_rkds_akdc_akds_cko_sub,
+#          color = colorRampPalette(c("blue", "white", "red"))(length(breaksList3)),
+#          breaks = breaksList3,
+#          fontsize = 8,
+#          cluster_cols = FALSE,
+#          clustering_distance_cols = "euclidean", 
+#          clustering_method = "ward.D", 
+#          border_color = NA,
+#          cutree_rows = 3)
+
+
+# take genes of all 3 clusters manually
+cluster1_genes <- data.frame(fread("/mnt/home3/reid/av638/cutntag/iva_lab_oct23/outfolder/bowtie2/mergedLibrary/bigwig/cluster1_genes.txt", header = F))
+cluster2_genes <- data.frame(fread("/mnt/home3/reid/av638/cutntag/iva_lab_oct23/outfolder/bowtie2/mergedLibrary/bigwig/cluster2_genes.txt", header = F))
+cluster3_genes <- data.frame(fread("/mnt/home3/reid/av638/cutntag/iva_lab_oct23/outfolder/bowtie2/mergedLibrary/bigwig/cluster3_genes.txt", header = F))
+colnames(cluster1_genes) <- "genes"
+colnames(cluster2_genes) <- "genes"
+colnames(cluster3_genes) <- "genes"
+
+# awk '{print $1"\t"$2"\t"$3"\t"0"\t"$7"\t"$4}' gene_v41_human_out.txt > gene_v41_human_out_re.txt
+
+
+gene_v41_human_out_re.bed <- data.frame(fread("/mnt/home3/reid/av638/cutntag/iva_lab_oct23/outfolder/bowtie2/mergedLibrary/bigwig/gene_v41_human_out_re.txt", header = F))
+colnames(gene_v41_human_out_re.bed) <- c("chr", "start", "end", "none","genes", "strand")
+gene_v41_human_out_re_cluster1 <- merge(cluster1_genes, gene_v41_human_out_re.bed, by="genes")
+gene_v41_human_out_re_cluster1 <- gene_v41_human_out_re_cluster1[which(gene_v41_human_out_re_cluster1$genes != "Metazoa_SRP"),]
+write.table(gene_v41_human_out_re_cluster1[,c(2:4,1,5:6)], "/mnt/home3/reid/av638/cutntag/iva_lab_oct23/outfolder/bowtie2/mergedLibrary/bigwig/gene_v41_human_out_re_cluster1.txt", sep="\t", append = F, quote = F, col.names = F, row.names = F)
+dim(gene_v41_human_out_re_cluster1)
+
+gene_v41_human_out_re_cluster2 <- merge(cluster2_genes, gene_v41_human_out_re.bed, by="genes")
+gene_v41_human_out_re_cluster2 <- gene_v41_human_out_re_cluster2[which(gene_v41_human_out_re_cluster2$genes != "Metazoa_SRP"),]
+write.table(gene_v41_human_out_re_cluster2[,c(2:4,1,5:6)], "/mnt/home3/reid/av638/cutntag/iva_lab_oct23/outfolder/bowtie2/mergedLibrary/bigwig/gene_v41_human_out_re_cluster2.txt", sep="\t", append = F, quote = F, col.names = F, row.names = F)
+dim(gene_v41_human_out_re_cluster2)
+
+gene_v41_human_out_re_cluster3 <- merge(cluster3_genes, gene_v41_human_out_re.bed, by="genes")
+gene_v41_human_out_re_cluster3 <- gene_v41_human_out_re_cluster3[which(gene_v41_human_out_re_cluster3$genes != "Metazoa_SRP"),]
+write.table(gene_v41_human_out_re_cluster3[,c(2:4,1,5:6)], "/mnt/home3/reid/av638/cutntag/iva_lab_oct23/outfolder/bowtie2/mergedLibrary/bigwig/gene_v41_human_out_re_cluster3.txt", sep="\t", append = F, quote = F, col.names = F, row.names = F)
+dim(gene_v41_human_out_re_cluster3)
 
 
 # Notes on 30 Oct 2023
@@ -1821,5 +1899,385 @@ sel_mpgd_genes_rkdc_rkds_akdc_akds_cko_ckd_ct_all_somepredictable_mat1 + sel_mpg
 # add H1 rnaseq kd
 # do the matrix for all genes without removing anything
 
+
+#---------------- Bin-based analysis ------------#
+# create genomic bins, 5kb, 10kb
+bedtools makewindows -g hg38.chrom.sizes -w 5000 > hg38_5kb.txt
+bedtools makewindows -g hg38.chrom.sizes -w 10000 > hg38_10kb.txt
+
+# for PE, atac
+/mnt/home3/reid/av638/ENCODE/slurm_sub_re.py -j job_bb ./bamtobed.sh
+/mnt/home3/reid/av638/ENCODE/slurm_sub_re.py -j job_cb ./convert_bedpe_to_bed.sh
+/mnt/home3/reid/av638/ENCODE/slurm_sub_re.py -j job ./quantify_over_bins_pe.sh
+
+# for all SE, cutnrun KO,KD and cutntag
+/mnt/home3/reid/av638/ENCODE/slurm_sub_re.py ./bamtobed_se.sh
+/mnt/home3/reid/av638/ENCODE/slurm_sub_re.py -j job ./quantify_over_bins_se.sh
+/mnt/home3/reid/av638/ENCODE/slurm_sub_re.py -j job ./quantify_over_bins_se.sh
+/mnt/home3/reid/av638/ENCODE/slurm_sub_re.py -j job ./quantify_over_bins_se.sh
+
+bin_cov_atacseq_path <- list.files(path="/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library", pattern = "*.txt_coverage.pe.bed", full.names = T)
+bin_cov_cutnrun_KO_path <- list.files(path="/mnt/home3/reid/av638/cutnrun/iva_lab_oct23/cutnrun_k27_ko/outfolder/bowtie2/mergedLibrary", pattern = "*.txt_coverage_se.bed", full.names = T)
+bin_cov_cutnrun_KD_path <- list.files(path="/mnt/home3/reid/av638/cutnrun/iva_lab_oct23/cutnrun_k27_kd/outfolder/bowtie2/mergedLibrary", pattern = "*.txt_coverage_se.bed", full.names = T)
+bin_cov_cutntag_path <- list.files(path="/mnt/home3/reid/av638/cutntag/iva_lab_oct23/outfolder/bowtie2/mergedLibrary", pattern = "*.txt_coverage_se.bed", full.names = T)
+bin_path_combined <- c(bin_cov_atacseq_path, bin_cov_cutnrun_KO_path, bin_cov_cutnrun_KD_path, bin_cov_cutntag_path)
+bin_path_combined_5kb <- bin_path_combined[grepl("5kb", bin_path_combined)]
+bin_path_combined_10kb <- bin_path_combined[grepl("10kb", bin_path_combined)]
+
+bin_5kb_list <- list()
+for (files in bin_path_combined_5kb){
+  filename <- sub("\\..*", "", basename(files))
+  print(filename)
+  bin_5kb_list[[filename]] <- data.frame(fread(files, header = F))
+}
+bin_5kb_df <- do.call(cbind.data.frame, bin_5kb_list)
+bin_5kb_df <- bin_5kb_df[,c(1:3, seq(4,175,7))]
+rownames(bin_5kb_df) <- paste0(bin_5kb_df$shControl_REP1.V1, "%", bin_5kb_df$shControl_REP1.V2, "%", bin_5kb_df$shControl_REP1.V3)
+bin_5kb_df <- bin_5kb_df[,-c(1:3)]
+colnames(bin_5kb_df) <- gsub(".V4","", colnames(bin_5kb_df))
+bin_5kb_df_filt <- bin_5kb_df[rowSums(bin_5kb_df) > 0,]
+bin_5kb_df_CPM <- edgeR::cpm(bin_5kb_df_filt)
+bin_5kb_df_CPM_log <- log(bin_5kb_df_CPM + 1,2)
+bin_5kb_df_CPM_log <- data.frame(bin_5kb_df_CPM_log)
+bin_5kb_df_CPM_log["akd_shCRAMP1_shControl_1"] <- bin_5kb_df_CPM_log$shCRAMP1_REP1 - bin_5kb_df_CPM_log$shControl_REP1
+bin_5kb_df_CPM_log["akd_shCRAMP1_shControl_2"] <- bin_5kb_df_CPM_log$shCRAMP1_REP2 - bin_5kb_df_CPM_log$shControl_REP2
+bin_5kb_df_CPM_log["akd_shSUZ12_shControl_1"] <- bin_5kb_df_CPM_log$shSUZ12_REP1 - bin_5kb_df_CPM_log$shControl_REP1
+bin_5kb_df_CPM_log["akd_shSUZ12_shControl_2"] <- bin_5kb_df_CPM_log$shSUZ12_REP2 - bin_5kb_df_CPM_log$shControl_REP2
+bin_5kb_df_CPM_log["cko_H3K27me3_KO1_IgG"] <- bin_5kb_df_CPM_log$H3K27me3_KO1 - bin_5kb_df_CPM_log$IgG_KO1
+bin_5kb_df_CPM_log["cko_H3K27me3_KO2_IgG"] <- bin_5kb_df_CPM_log$H3K27me3_KO2 - bin_5kb_df_CPM_log$IgG_KO2
+bin_5kb_df_CPM_log["cko_H3K27me3_KO3_IgG"] <- bin_5kb_df_CPM_log$H3K27me3_KO3 - bin_5kb_df_CPM_log$IgG_KO3
+bin_5kb_df_CPM_log["cko_H3K27me3_WT_IgG"] <- bin_5kb_df_CPM_log$H3K27me3_WT - bin_5kb_df_CPM_log$IgG_WT
+bin_5kb_df_CPM_log["ckd_shControl_H3K27me3_IgG"] <- bin_5kb_df_CPM_log$shControl_H3K27me3 - bin_5kb_df_CPM_log$shControl_IgG
+bin_5kb_df_CPM_log["ckd_shCRAMP1_H3K27me3_IgG"] <- bin_5kb_df_CPM_log$shCRAMP1_H3K27me3 - bin_5kb_df_CPM_log$shCRAMP1_IgG
+bin_5kb_df_CPM_log["ckd_shSUZ12_H3K27me3_IgG"] <- bin_5kb_df_CPM_log$shSUZ12_H3K27me3 - bin_5kb_df_CPM_log$shSUZ12_IgG
+bin_5kb_df_CPM_log["ct_ENCFF508LLH_IgG"] <- bin_5kb_df_CPM_log$ENCFF508LLH - bin_5kb_df_CPM_log$IgG
+bin_5kb_df_CPM_log["ct_H1_4_IgG"] <- bin_5kb_df_CPM_log$H1_4 - bin_5kb_df_CPM_log$IgG
+bin_5kb_df_CPM_log["ct_H3K27me3_IgG"] <- bin_5kb_df_CPM_log$H3K27me3 - bin_5kb_df_CPM_log$IgG
+bin_5kb_df_CPM_log["ct_panH1_IgG"] <- bin_5kb_df_CPM_log$panH1 - bin_5kb_df_CPM_log$IgG
+
+bin_5kb_df_CPM_log_sub <- bin_5kb_df_CPM_log[,c(26:40)]
+
+# 10 kb
+bin_10kb_list <- list()
+for (files in bin_path_combined_10kb){
+  filename <- sub("\\..*", "", basename(files))
+  print(filename)
+  bin_10kb_list[[filename]] <- data.frame(fread(files, header = F))
+}
+bin_10kb_df <- do.call(cbind.data.frame, bin_10kb_list)
+bin_10kb_df <- bin_10kb_df[,c(1:3, seq(4,175,7))]
+rownames(bin_10kb_df) <- paste0(bin_10kb_df$shControl_REP1.V1, "%", bin_10kb_df$shControl_REP1.V2, "%", bin_10kb_df$shControl_REP1.V3)
+bin_10kb_df <- bin_10kb_df[,-c(1:3)]
+colnames(bin_10kb_df) <- gsub(".V4","", colnames(bin_10kb_df))
+bin_10kb_df_filt <- bin_10kb_df[rowSums(bin_10kb_df) > 0,]
+bin_10kb_df_CPM <- edgeR::cpm(bin_10kb_df_filt)
+bin_10kb_df_CPM_log <- log(bin_10kb_df_CPM + 1,2)
+bin_10kb_df_CPM_log <- data.frame(bin_10kb_df_CPM_log)
+bin_10kb_df_CPM_log["akd_shCRAMP1_shControl_1"] <- bin_10kb_df_CPM_log$shCRAMP1_REP1 - bin_10kb_df_CPM_log$shControl_REP1
+bin_10kb_df_CPM_log["akd_shCRAMP1_shControl_2"] <- bin_10kb_df_CPM_log$shCRAMP1_REP2 - bin_10kb_df_CPM_log$shControl_REP2
+bin_10kb_df_CPM_log["akd_shSUZ12_shControl_1"] <- bin_10kb_df_CPM_log$shSUZ12_REP1 - bin_10kb_df_CPM_log$shControl_REP1
+bin_10kb_df_CPM_log["akd_shSUZ12_shControl_2"] <- bin_10kb_df_CPM_log$shSUZ12_REP2 - bin_10kb_df_CPM_log$shControl_REP2
+bin_10kb_df_CPM_log["cko_H3K27me3_KO1_IgG"] <- bin_10kb_df_CPM_log$H3K27me3_KO1 - bin_10kb_df_CPM_log$IgG_KO1
+bin_10kb_df_CPM_log["cko_H3K27me3_KO2_IgG"] <- bin_10kb_df_CPM_log$H3K27me3_KO2 - bin_10kb_df_CPM_log$IgG_KO2
+bin_10kb_df_CPM_log["cko_H3K27me3_KO3_IgG"] <- bin_10kb_df_CPM_log$H3K27me3_KO3 - bin_10kb_df_CPM_log$IgG_KO3
+bin_10kb_df_CPM_log["cko_H3K27me3_WT_IgG"] <- bin_10kb_df_CPM_log$H3K27me3_WT - bin_10kb_df_CPM_log$IgG_WT
+bin_10kb_df_CPM_log["ckd_shControl_H3K27me3_IgG"] <- bin_10kb_df_CPM_log$shControl_H3K27me3 - bin_10kb_df_CPM_log$shControl_IgG
+bin_10kb_df_CPM_log["ckd_shCRAMP1_H3K27me3_IgG"] <- bin_10kb_df_CPM_log$shCRAMP1_H3K27me3 - bin_10kb_df_CPM_log$shCRAMP1_IgG
+bin_10kb_df_CPM_log["ckd_shSUZ12_H3K27me3_IgG"] <- bin_10kb_df_CPM_log$shSUZ12_H3K27me3 - bin_10kb_df_CPM_log$shSUZ12_IgG
+bin_10kb_df_CPM_log["ct_ENCFF508LLH_IgG"] <- bin_10kb_df_CPM_log$ENCFF508LLH - bin_10kb_df_CPM_log$IgG
+bin_10kb_df_CPM_log["ct_H1_4_IgG"] <- bin_10kb_df_CPM_log$H1_4 - bin_10kb_df_CPM_log$IgG
+bin_10kb_df_CPM_log["ct_H3K27me3_IgG"] <- bin_10kb_df_CPM_log$H3K27me3 - bin_10kb_df_CPM_log$IgG
+bin_10kb_df_CPM_log["ct_panH1_IgG"] <- bin_10kb_df_CPM_log$panH1 - bin_10kb_df_CPM_log$IgG
+
+bin_10kb_df_CPM_log_sub <- bin_10kb_df_CPM_log[,c(26:40)]
+
+
+# DARs analysis using Bins
+# bin_5kb_df_filt
+atacseqkd_bin5kb_precountdata <- bin_5kb_df_filt[,c(1:6)]
+head(atacseqkd_bin5kb_precountdata)
+dim(atacseqkd_bin5kb_precountdata)
+colSums(atacseqkd_bin5kb_precountdata)
+atacseqkd_bin5kb_precountdata <- data.frame(atacseqkd_bin5kb_precountdata)
+#write.table(atacseqkd_bin5kb_precountdata, "atacseqkd_bin5kb_precountdata.txt", quote = F, append = F, sep="\t")
+
+# get countdata
+atacseqkd_bin5kb_countdata <- atacseqkd_bin5kb_precountdata[,c(1:dim(atacseqkd_bin5kb_precountdata)[2])]
+
+# create sample-specific coldata object
+atacseqkd_bin5kb_dds_coldata <- data.frame(sample = colnames(atacseqkd_bin5kb_countdata), 
+                                        condition = unlist(lapply(strsplit(colnames(atacseqkd_bin5kb_countdata), "_"), function(x) x[1])), 
+                                        replicate = unlist(lapply(strsplit(colnames(atacseqkd_bin5kb_countdata), "_"), function(x) x[2])))
+
+rownames(atacseqkd_bin5kb_dds_coldata) <- atacseqkd_bin5kb_dds_coldata$sample
+atacseqkd_bin5kb_dds_coldata$condition <- factor(atacseqkd_bin5kb_dds_coldata$condition)
+atacseqkd_bin5kb_dds_coldata$replicate <- factor(atacseqkd_bin5kb_dds_coldata$replicate)
+
+# prepare count matrix 
+atacseqkd_bin5kb_countdata = as.matrix(atacseqkd_bin5kb_countdata) 
+all(rownames(atacseqkd_bin5kb_dds_coldata) == colnames(atacseqkd_bin5kb_countdata)) #should print TRUE
+atacseqkd_bin5kb_ddsO <- DESeqDataSetFromMatrix(countData = atacseqkd_bin5kb_countdata, colData = atacseqkd_bin5kb_dds_coldata, design = ~ condition)
+atacseqkd_bin5kb_keep <- rowSums(counts(atacseqkd_bin5kb_ddsO)) > 10
+atacseqkd_bin5kb_ddsO <- atacseqkd_bin5kb_ddsO[atacseqkd_bin5kb_keep,]
+
+# pca 
+atacseqkd_bin5kb_vst0Norm <- DESeq2::vst(atacseqkd_bin5kb_ddsO)
+atacseqkd_bin5kb_vst0Norm_pca <- plotPCA(atacseqkd_bin5kb_vst0Norm, intgroup="condition", returnData=TRUE)
+plotPCA(atacseqkd_bin5kb_vst0Norm, intgroup="condition", returnData=FALSE)
+
+# de analysis
+atacseqkd_bin5kb_ddsO <- DESeq(atacseqkd_bin5kb_ddsO)
+
+
+# shCRAMP1 vs shControl
+atacseqkd_bin5kb_de_shCRAMP1_shControl <- results(atacseqkd_bin5kb_ddsO, contrast=c("condition", "shCRAMP1", "shControl"))
+atacseqkd_bin5kb_de_shCRAMP1_shControl = atacseqkd_bin5kb_de_shCRAMP1_shControl[order(rownames(atacseqkd_bin5kb_de_shCRAMP1_shControl)),]
+atacseqkd_bin5kb_de_shCRAMP1_shControl$threshold <- as.logical(atacseqkd_bin5kb_de_shCRAMP1_shControl$padj < 0.05)
+deseq2_atacseqkd_bin5kb_de_shCRAMP1_shControl_0.05 <- atacseqkd_bin5kb_de_shCRAMP1_shControl[which(atacseqkd_bin5kb_de_shCRAMP1_shControl$threshold == TRUE),]
+deseq2_atacseqkd_bin5kb_de_shCRAMP1_shControl_0.05_df <- data.frame(deseq2_atacseqkd_bin5kb_de_shCRAMP1_shControl_0.05)
+deseq2_atacseqkd_bin5kb_de_shCRAMP1_shControl_0.05_df["interval"] <- rownames(deseq2_atacseqkd_bin5kb_de_shCRAMP1_shControl_0.05_df)
+deseq2_atacseqkd_bin5kb_de_shCRAMP1_shControl_0.05_df <- deseq2_atacseqkd_bin5kb_de_shCRAMP1_shControl_0.05_df[,c(8,1:7)]
+deseq2_atacseqkd_bin5kb_de_shCRAMP1_shControl_0.05_fc_df <- deseq2_atacseqkd_bin5kb_de_shCRAMP1_shControl_0.05_df %>% dplyr::filter((log2FoldChange > 1) | (log2FoldChange < -1))
+deseq2_atacseqkd_bin5kb_de_shCRAMP1_shControl_0.05_fc_up <- deseq2_atacseqkd_bin5kb_de_shCRAMP1_shControl_0.05_df %>% dplyr::filter((log2FoldChange > 1))
+deseq2_atacseqkd_bin5kb_de_shCRAMP1_shControl_0.05_fc_down <- deseq2_atacseqkd_bin5kb_de_shCRAMP1_shControl_0.05_df %>% dplyr::filter((log2FoldChange < -1))
+
+
+# log2(1.5) = 2.83
+ggmaplot(atacseqkd_bin5kb_de_shCRAMP1_shControl,
+         fdr = 0.05, fc = 2, size = 0.3,
+         palette = c("#D22B2B", "#1465AC", "darkgray"),
+         genenames = rownames(atacseqkd_bin5kb_de_shCRAMP1_shControl),
+         legend = "top", top = 20,
+         font.label = c("bold", 5),
+         font.legend = "bold",
+         font.main = "bold",
+         ggtheme = ggplot2::theme_minimal())
+
+# shSUZ12 vs shControl
+atacseqkd_bin5kb_de_shSUZ12_shControl <- results(atacseqkd_bin5kb_ddsO, contrast=c("condition", "shSUZ12", "shControl"))
+atacseqkd_bin5kb_de_shSUZ12_shControl = atacseqkd_bin5kb_de_shSUZ12_shControl[order(rownames(atacseqkd_bin5kb_de_shSUZ12_shControl)),]
+atacseqkd_bin5kb_de_shSUZ12_shControl$threshold <- as.logical(atacseqkd_bin5kb_de_shSUZ12_shControl$padj < 0.05)
+deseq2_atacseqkd_bin5kb_de_shSUZ12_shControl_0.05 <- atacseqkd_bin5kb_de_shSUZ12_shControl[which(atacseqkd_bin5kb_de_shSUZ12_shControl$threshold == TRUE),]
+deseq2_atacseqkd_bin5kb_de_shSUZ12_shControl_0.05_df <- data.frame(deseq2_atacseqkd_bin5kb_de_shSUZ12_shControl_0.05)
+deseq2_atacseqkd_bin5kb_de_shSUZ12_shControl_0.05_df["interval"] <- rownames(deseq2_atacseqkd_bin5kb_de_shSUZ12_shControl_0.05_df)
+deseq2_atacseqkd_bin5kb_de_shSUZ12_shControl_0.05_df <- deseq2_atacseqkd_bin5kb_de_shSUZ12_shControl_0.05_df[,c(8,1:7)]
+deseq2_atacseqkd_bin5kb_de_shSUZ12_shControl_0.05_fc_df <- deseq2_atacseqkd_bin5kb_de_shSUZ12_shControl_0.05_df %>% dplyr::filter((log2FoldChange > 1) | (log2FoldChange < -1))
+deseq2_atacseqkd_bin5kb_de_shSUZ12_shControl_0.05_fc_up <- deseq2_atacseqkd_bin5kb_de_shSUZ12_shControl_0.05_df %>% dplyr::filter((log2FoldChange > 1))
+deseq2_atacseqkd_bin5kb_de_shSUZ12_shControl_0.05_fc_down <- deseq2_atacseqkd_bin5kb_de_shSUZ12_shControl_0.05_df %>% dplyr::filter((log2FoldChange < -1))
+
+
+ggmaplot(atacseqkd_bin5kb_de_shSUZ12_shControl,
+         fdr = 0.05, fc = 2, size = 0.3,
+         palette = c("#D22B2B", "#1465AC", "darkgray"),
+         genenames = rownames(atacseqkd_bin5kb_de_shCRAMP1_shControl),
+         legend = "top", top = 20,
+         font.label = c("bold", 5),
+         font.legend = "bold",
+         font.main = "bold",
+         ggtheme = ggplot2::theme_minimal())
+
+
+# Cut & Run KO
+
+
+# DBRs analysis using Bins
+# bin_5kb_df_filt
+cutnrunKO_bin5kb_precountdata <- bin_5kb_df_filt[,c(7:14)]
+head(cutnrunKO_bin5kb_precountdata)
+dim(cutnrunKO_bin5kb_precountdata)
+colSums(cutnrunKO_bin5kb_precountdata)
+#write.table(cutnrunKO_bin5kb_precountdata, "cutnrunKO_bin5kb_precountdata.txt", quote = F, append = F, sep="\t")
+
+# Since the bins are not IgG normalized it is important to correct for background 
+cutnrunKO_bin5kb_precountdata["H3K27me3_KO1_IgG_KO1"] <- cutnrunKO_bin5kb_precountdata$H3K27me3_KO1 - cutnrunKO_bin5kb_precountdata$IgG_KO1
+cutnrunKO_bin5kb_precountdata["H3K27me3_KO2_IgG_KO2"] <- cutnrunKO_bin5kb_precountdata$H3K27me3_KO2 - cutnrunKO_bin5kb_precountdata$IgG_KO2
+cutnrunKO_bin5kb_precountdata["H3K27me3_KO3_IgG_KO3"] <- cutnrunKO_bin5kb_precountdata$H3K27me3_KO3 - cutnrunKO_bin5kb_precountdata$IgG_KO3
+cutnrunKO_bin5kb_precountdata["H3K27me3_WT_IgG_WT"] <- cutnrunKO_bin5kb_precountdata$H3K27me3_WT - cutnrunKO_bin5kb_precountdata$IgG_WT
+
+# Identify enriched consensus bins
+# get regions that are enriched regions in atleast one of the H3K27me3 samples (KO1-3, WT)
+# this will give bins like a consensus bins profile where the enrichemnt is observed in atleast one of the sample
+# though they are low counts i.e. 1 and above, they are will be filtered on rowsums during DBR analysis
+cutnrunKO_bin5kb_precountdata <- cutnrunKO_bin5kb_precountdata[which(cutnrunKO_bin5kb_precountdata$H3K27me3_KO1_IgG_KO1 > 0 
+                                                                     | cutnrunKO_bin5kb_precountdata$H3K27me3_KO2_IgG_KO2 > 0 
+                                                                     | cutnrunKO_bin5kb_precountdata$H3K27me3_KO3_IgG_KO3 > 0 
+                                                                     | cutnrunKO_bin5kb_precountdata$H3K27me3_WT_IgG_WT > 0),]
+# Now take only the H3K27me3 counts in bins
+cutnrunKO_bin5kb_countdata <- cutnrunKO_bin5kb_precountdata[,c(1:4)]
+
+
+# create sample-specific coldata object
+cutnrunKO_bin5kb_dds_coldata <- data.frame(sample = colnames(cutnrunKO_bin5kb_countdata))
+
+cutnrunKO_bin5kb_dds_coldata["condition"] <- gsub('[0-9]+', '', unlist(lapply(strsplit(cutnrunKO_bin5kb_dds_coldata$sample, "_"), function(x) x[2])))
+cutnrunKO_bin5kb_dds_coldata["replicate"] <- c(1,2,3,1)
+
+# rearrange
+rownames(cutnrunKO_bin5kb_dds_coldata) <- cutnrunKO_bin5kb_dds_coldata$sample
+cutnrunKO_bin5kb_dds_coldata$condition <- factor(cutnrunKO_bin5kb_dds_coldata$condition)
+cutnrunKO_bin5kb_dds_coldata$replicate <- factor(cutnrunKO_bin5kb_dds_coldata$replicate)
+
+# prepare count matrix 
+cutnrunKO_bin5kb_countdata = as.matrix(cutnrunKO_bin5kb_countdata) 
+all(rownames(cutnrunKO_bin5kb_dds_coldata) == colnames(cutnrunKO_bin5kb_countdata)) #should print TRUE
+cutnrunKO_bin5kb_ddsO <- DESeqDataSetFromMatrix(countData = cutnrunKO_bin5kb_countdata, colData = cutnrunKO_bin5kb_dds_coldata, design = ~condition)
+cutnrunKO_bin5kb_keep <- rowSums(counts(cutnrunKO_bin5kb_ddsO)) > 10
+cutnrunKO_bin5kb_ddsO <- cutnrunKO_bin5kb_ddsO[cutnrunKO_bin5kb_keep,]
+
+# pca
+cutnrunKO_bin5kb_vst0Norm <- DESeq2::vst(cutnrunKO_bin5kb_ddsO)
+cutnrunKO_bin5kb_vst0Norm_pca <- plotPCA(cutnrunKO_bin5kb_vst0Norm, intgroup="condition", returnData=TRUE)
+plotPCA(cutnrunKO_bin5kb_vst0Norm, intgroup="condition", returnData=FALSE)
+
+
+# de analysis
+cutnrunKO_bin5kb_ddsO <- DESeq(cutnrunKO_bin5kb_ddsO)
+
+# KO vs WT
+cutnrunKO_bin5kb_de_KO_WT <- results(cutnrunKO_bin5kb_ddsO, contrast=c("condition", "KO", "WT"))
+cutnrunKO_bin5kb_de_KO_WT = cutnrunKO_bin5kb_de_KO_WT[order(rownames(cutnrunKO_bin5kb_de_KO_WT)),]
+cutnrunKO_bin5kb_de_KO_WT$threshold <- as.logical(cutnrunKO_bin5kb_de_KO_WT$padj < 0.05)
+deseq2_cutnrunKO_bin5kb_de_KO_WT_0.05 <- cutnrunKO_bin5kb_de_KO_WT[which(cutnrunKO_bin5kb_de_KO_WT$threshold == TRUE),]
+deseq2_cutnrunKO_bin5kb_de_KO_WT_0.05_df <- data.frame(deseq2_cutnrunKO_bin5kb_de_KO_WT_0.05)
+deseq2_cutnrunKO_bin5kb_de_KO_WT_0.05_df["interval"] <- rownames(deseq2_cutnrunKO_bin5kb_de_KO_WT_0.05_df)
+deseq2_cutnrunKO_bin5kb_de_KO_WT_0.05_df <- deseq2_cutnrunKO_bin5kb_de_KO_WT_0.05_df[,c(8,1:7)]
+deseq2_cutnrunKO_bin5kb_de_KO_WT_0.05_fc_df <- deseq2_cutnrunKO_bin5kb_de_KO_WT_0.05_df %>% dplyr::filter((log2FoldChange > 1) | (log2FoldChange < -1))
+
+cutnrunKO_bin5kb_de_KO_WT_df <- data.frame(cutnrunKO_bin5kb_de_KO_WT)
+cutnrunKO_bin5kb_de_KO_WT_df["interval"] <- rownames(cutnrunKO_bin5kb_de_KO_WT_df) 
+
+deseq2_cutnrunKO_bin5kb_de_KO_WT_0.05_fc.up <- deseq2_cutnrunKO_bin5kb_de_KO_WT_0.05_df %>% dplyr::filter((log2FoldChange > 1) )
+deseq2_cutnrunKO_bin5kb_de_KO_WT_0.05_fc.down <- deseq2_cutnrunKO_bin5kb_de_KO_WT_0.05_df %>% dplyr::filter((log2FoldChange < -1) )
+
+# log2(1) = 2
+ggmaplot(cutnrunKO_bin5kb_de_KO_WT_df,
+         fdr = 0.05, fc = 2, size = 0.3,
+         palette = c("#D22B2B", "#1465AC", "darkgray"),
+         genenames = cutnrunKO_bin5kb_de_KO_WT_df$interval,
+         legend = "top", top = 20,
+         font.label = c("bold", 5),
+         font.legend = "bold",
+         font.main = "bold",
+         ggtheme = ggplot2::theme_minimal())
+
+# Cut & Run KD and Cut & Tag data
+
+# DBRs analysis using Bins
+# bin_5kb_df_filt
+cutnrunKD_bin5kb_precountdata <- bin_5kb_df_filt[,c(15:20)]
+head(cutnrunKD_bin5kb_precountdata)
+dim(cutnrunKD_bin5kb_precountdata)
+colSums(cutnrunKD_bin5kb_precountdata)
+#write.table(cutnrunKD_bin5kb_precountdata, "cutnrunKD_bin5kb_precountdata.txt", quote = F, append = F, sep="\t")
+
+# Since the bins are not IgG normalized it is important to correct for background 
+cutnrunKD_bin5kb_precountdata["shControl_H3K27me3_IgG"] <- cutnrunKD_bin5kb_precountdata$shControl_H3K27me3 - cutnrunKD_bin5kb_precountdata$shControl_IgG
+cutnrunKD_bin5kb_precountdata["shCRAMP1_H3K27me3_IgG"] <- cutnrunKD_bin5kb_precountdata$shCRAMP1_H3K27me3 - cutnrunKD_bin5kb_precountdata$shCRAMP1_IgG
+cutnrunKD_bin5kb_precountdata["shSUZ12_H3K27me3_IgG"] <- cutnrunKD_bin5kb_precountdata$shSUZ12_H3K27me3 - cutnrunKD_bin5kb_precountdata$shSUZ12_IgG
+
+# Identify enriched consensus bins
+# get regions that are enriched regions in atleast one of the cutandrun KD samples
+# this will give bins like a consensus bins profile where the enrichemnt is observed in atleast one of the sample
+# let Cut&Tag data as such
+cutnrunKD_bin5kb_precountdata <- cutnrunKD_bin5kb_precountdata[which(cutnrunKD_bin5kb_precountdata$shControl_H3K27me3_IgG > 0 
+                                                                     | cutnrunKD_bin5kb_precountdata$shCRAMP1_H3K27me3_IgG > 0 
+                                                                     | cutnrunKD_bin5kb_precountdata$shSUZ12_H3K27me3_IgG > 0),]
+
+# For Cut&RUn KD subtract sample-control just to get differential kind of profile
+cutnrunKD_bin5kb_precountdata["shCRAMP1_H3K27me3_IgG_shControl"] <- cutnrunKD_bin5kb_precountdata$shCRAMP1_H3K27me3_IgG - cutnrunKD_bin5kb_precountdata$shControl_H3K27me3_IgG
+cutnrunKD_bin5kb_precountdata["shSUZ12_H3K27me3_IgG_shControl"] <- cutnrunKD_bin5kb_precountdata$shSUZ12_H3K27me3_IgG - cutnrunKD_bin5kb_precountdata$shControl_H3K27me3_IgG
+
+# Since there is no DBRs analysis here, I just take CPM log subtracted from respective IgG for Cut&Run KD and Cut&Tag data
+cutnrunKD_bin5kb_countdata <- cutnrunKD_bin5kb_precountdata[,c(3,5)]
+
+cutnrunKD_bin5kb_countdata_CPM <- edgeR::cpm(cutnrunKD_bin5kb_countdata)
+cutnrunKD_bin5kb_countdata_CPM_log <- log(cutnrunKD_bin5kb_countdata_CPM + 1,2)
+cutnrunKD_bin5kb_countdata_CPM_log <- data.frame(cutnrunKD_bin5kb_countdata_CPM_log)
+
+# merge
+sel_mpgd_genes_akdc_akds <- merge(deseq2_atacseqkd_bin5kb_de_shCRAMP1_shControl_0.05_df, deseq2_atacseqkd_bin5kb_de_shSUZ12_shControl_0.05_df, by.x="interval", by.y="interval", all.x=TRUE, all.y=TRUE)
+sel_mpgd_genes_akdc_akds <- sel_mpgd_genes_akdc_akds[,c(1,3,10)]
+sel_mpgd_genes_akdc_akds_cko <- merge(sel_mpgd_genes_akdc_akds, deseq2_cutnrunKO_bin5kb_de_KO_WT_0.05_fc_df, by.x="interval", by.y="interval", all.x=TRUE, all.y=TRUE)
+sel_mpgd_genes_akdc_akds_cko <- sel_mpgd_genes_akdc_akds_cko[,c(1,2,3,5)]
+colnames(sel_mpgd_genes_akdc_akds_cko) <- c("interval","akd_shCRAMP1_shControl","akd_shSUZ12_shControl", "cko_KO_WT")
+rownames(sel_mpgd_genes_akdc_akds_cko) <- sel_mpgd_genes_akdc_akds_cko$interval
+sel_mpgd_genes_akdc_akds_cko <- sel_mpgd_genes_akdc_akds_cko[,-1]
+library(ComplexHeatmap)
+sel_mpgd_genes_akdc_akds_cko_mat1 <- Heatmap(as.matrix(sel_mpgd_genes_akdc_akds_cko), na_col = "yellow", row_names_gp = gpar(fontsize = 5), cluster_columns = FALSE, cluster_rows = FALSE, col = col_fun)
+
+
+#----------------- Over ATAC-Seq shCRAMP1 DARs peaks ---------------#
+#Only DARs 
+# create genomic atac_shCRAMP1_dars
+
+# for PE, atac
+/mnt/home3/reid/av638/ENCODE/slurm_sub_re.py -j job_akdc ./quantify_over_atac_shCRAMP1_dars_pe.sh
+
+# for all SE, cutnrun KO,KD and cutntag
+/mnt/home3/reid/av638/ENCODE/slurm_sub_re.py -j job_akdc ./quantify_over_atac_shCRAMP1_dars_se.sh
+/mnt/home3/reid/av638/ENCODE/slurm_sub_re.py -j job_akdc ./quantify_over_atac_shCRAMP1_dars_se.sh
+/mnt/home3/reid/av638/ENCODE/slurm_sub_re.py -j job_akdc ./quantify_over_atac_shCRAMP1_dars_se.sh
+
+
+atac_shCRAMP1_dars_cov_atacseq_path <- list.files(path="/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library", pattern = "*akdc_coverage.pe.bed", full.names = T)
+atac_shCRAMP1_dars_cov_cutnrun_KO_path <- list.files(path="/mnt/home3/reid/av638/cutnrun/iva_lab_oct23/cutnrun_k27_ko/outfolder/bowtie2/mergedLibrary", pattern = "*akdc_coverage_se.bed", full.names = T)
+atac_shCRAMP1_dars_cov_cutnrun_KD_path <- list.files(path="/mnt/home3/reid/av638/cutnrun/iva_lab_oct23/cutnrun_k27_kd/outfolder/bowtie2/mergedLibrary", pattern = "*akdc_coverage_se.bed", full.names = T)
+atac_shCRAMP1_dars_cov_cutntag_path <- list.files(path="/mnt/home3/reid/av638/cutntag/iva_lab_oct23/outfolder/bowtie2/mergedLibrary", pattern = "*akdc_coverage_se.bed", full.names = T)
+atac_shCRAMP1_dars_path_combined <- c(atac_shCRAMP1_dars_cov_atacseq_path, atac_shCRAMP1_dars_cov_cutnrun_KO_path, atac_shCRAMP1_dars_cov_cutnrun_KD_path, atac_shCRAMP1_dars_cov_cutntag_path)
+
+atac_shCRAMP1_dars_list <- list()
+for (files in atac_shCRAMP1_dars_path_combined){
+  filename <- sub("\\..*", "", basename(files))
+  print(filename)
+  atac_shCRAMP1_dars_list[[filename]] <- data.frame(fread(files, header = F))
+}
+atac_shCRAMP1_dars_df <- do.call(cbind.data.frame, atac_shCRAMP1_dars_list)
+atac_shCRAMP1_dars_df <- atac_shCRAMP1_dars_df[,c(1:4, seq(5,200,8))]
+rownames(atac_shCRAMP1_dars_df) <- paste0(atac_shCRAMP1_dars_df$shControl_REP1.V1, "%", atac_shCRAMP1_dars_df$shControl_REP1.V2, "%", atac_shCRAMP1_dars_df$shControl_REP1.V3, "%", atac_shCRAMP1_dars_df$shControl_REP1.V4)
+atac_shCRAMP1_dars_df <- atac_shCRAMP1_dars_df[,-c(1:4)]
+colnames(atac_shCRAMP1_dars_df) <- gsub(".V5","", colnames(atac_shCRAMP1_dars_df))
+atac_shCRAMP1_dars_df_filt <- atac_shCRAMP1_dars_df[rowSums(atac_shCRAMP1_dars_df) > 0,]
+atac_shCRAMP1_dars_df_CPM <- edgeR::cpm(atac_shCRAMP1_dars_df_filt)
+atac_shCRAMP1_dars_df_CPM_log <- log(atac_shCRAMP1_dars_df_CPM + 1,2)
+atac_shCRAMP1_dars_df_CPM_log <- data.frame(atac_shCRAMP1_dars_df_CPM_log)
+atac_shCRAMP1_dars_df_CPM_log["akd_shCRAMP1_shControl_1"] <- atac_shCRAMP1_dars_df_CPM_log$shCRAMP1_REP1 - atac_shCRAMP1_dars_df_CPM_log$shControl_REP1
+atac_shCRAMP1_dars_df_CPM_log["akd_shCRAMP1_shControl_2"] <- atac_shCRAMP1_dars_df_CPM_log$shCRAMP1_REP2 - atac_shCRAMP1_dars_df_CPM_log$shControl_REP2
+atac_shCRAMP1_dars_df_CPM_log["akd_shSUZ12_shControl_1"] <- atac_shCRAMP1_dars_df_CPM_log$shSUZ12_REP1 - atac_shCRAMP1_dars_df_CPM_log$shControl_REP1
+atac_shCRAMP1_dars_df_CPM_log["akd_shSUZ12_shControl_2"] <- atac_shCRAMP1_dars_df_CPM_log$shSUZ12_REP2 - atac_shCRAMP1_dars_df_CPM_log$shControl_REP2
+atac_shCRAMP1_dars_df_CPM_log["cko_H3K27me3_KO1_IgG"] <- atac_shCRAMP1_dars_df_CPM_log$H3K27me3_KO1 - atac_shCRAMP1_dars_df_CPM_log$IgG_KO1
+atac_shCRAMP1_dars_df_CPM_log["cko_H3K27me3_KO2_IgG"] <- atac_shCRAMP1_dars_df_CPM_log$H3K27me3_KO2 - atac_shCRAMP1_dars_df_CPM_log$IgG_KO2
+atac_shCRAMP1_dars_df_CPM_log["cko_H3K27me3_KO3_IgG"] <- atac_shCRAMP1_dars_df_CPM_log$H3K27me3_KO3 - atac_shCRAMP1_dars_df_CPM_log$IgG_KO3
+atac_shCRAMP1_dars_df_CPM_log["cko_H3K27me3_WT_IgG"] <- atac_shCRAMP1_dars_df_CPM_log$H3K27me3_WT - atac_shCRAMP1_dars_df_CPM_log$IgG_WT
+atac_shCRAMP1_dars_df_CPM_log["ckd_shControl_H3K27me3_IgG"] <- atac_shCRAMP1_dars_df_CPM_log$shControl_H3K27me3 - atac_shCRAMP1_dars_df_CPM_log$shControl_IgG
+atac_shCRAMP1_dars_df_CPM_log["ckd_shCRAMP1_H3K27me3_IgG"] <- atac_shCRAMP1_dars_df_CPM_log$shCRAMP1_H3K27me3 - atac_shCRAMP1_dars_df_CPM_log$shCRAMP1_IgG
+atac_shCRAMP1_dars_df_CPM_log["ckd_shSUZ12_H3K27me3_IgG"] <- atac_shCRAMP1_dars_df_CPM_log$shSUZ12_H3K27me3 - atac_shCRAMP1_dars_df_CPM_log$shSUZ12_IgG
+atac_shCRAMP1_dars_df_CPM_log["ct_ENCFF508LLH_IgG"] <- atac_shCRAMP1_dars_df_CPM_log$ENCFF508LLH - atac_shCRAMP1_dars_df_CPM_log$IgG
+atac_shCRAMP1_dars_df_CPM_log["ct_H1_4_IgG"] <- atac_shCRAMP1_dars_df_CPM_log$H1_4 - atac_shCRAMP1_dars_df_CPM_log$IgG
+atac_shCRAMP1_dars_df_CPM_log["ct_H3K27me3_IgG"] <- atac_shCRAMP1_dars_df_CPM_log$H3K27me3 - atac_shCRAMP1_dars_df_CPM_log$IgG
+atac_shCRAMP1_dars_df_CPM_log["ct_panH1_IgG"] <- atac_shCRAMP1_dars_df_CPM_log$panH1 - atac_shCRAMP1_dars_df_CPM_log$IgG
+
+atac_shCRAMP1_dars_df_CPM_log["cko_H3K27me3_KO1_IgG_WT"] <- atac_shCRAMP1_dars_df_CPM_log$cko_H3K27me3_KO1_IgG - atac_shCRAMP1_dars_df_CPM_log$cko_H3K27me3_WT_IgG
+atac_shCRAMP1_dars_df_CPM_log["cko_H3K27me3_KO2_IgG_WT"] <- atac_shCRAMP1_dars_df_CPM_log$cko_H3K27me3_KO2_IgG - atac_shCRAMP1_dars_df_CPM_log$cko_H3K27me3_WT_IgG
+atac_shCRAMP1_dars_df_CPM_log["cko_H3K27me3_KO3_IgG_WT"] <- atac_shCRAMP1_dars_df_CPM_log$cko_H3K27me3_KO3_IgG - atac_shCRAMP1_dars_df_CPM_log$cko_H3K27me3_WT_IgG
+
+atac_shCRAMP1_dars_df_CPM_log["ckd_shCRAMP1_H3K27me3_IgG_shControl"] <- atac_shCRAMP1_dars_df_CPM_log$ckd_shCRAMP1_H3K27me3_IgG - atac_shCRAMP1_dars_df_CPM_log$ckd_shControl_H3K27me3_IgG
+atac_shCRAMP1_dars_df_CPM_log["ckd_shSUZ12_H3K27me3_IgG_shControl"] <- atac_shCRAMP1_dars_df_CPM_log$ckd_shSUZ12_H3K27me3_IgG - atac_shCRAMP1_dars_df_CPM_log$ckd_shControl_H3K27me3_IgG
+
+atac_shCRAMP1_dars_df_CPM_log_sub <- atac_shCRAMP1_dars_df_CPM_log[,c(26:29,41:45,37:40)]
+dim(atac_shCRAMP1_dars_df_CPM_log_sub)
+
+
+Heatmap(as.matrix(atac_shCRAMP1_dars_df_CPM_log_sub), na_col = "yellow", row_names_gp = gpar(fontsize = 5), cluster_columns = FALSE, use_raster = TRUE)
+
+# atac_shCRAMP1_dars_df_CPM_log_sub_sorted <- atac_shCRAMP1_dars_df_CPM_log_sub[order(-atac_shCRAMP1_dars_df_CPM_log_sub$akd_shCRAMP1_shControl_1),]
+atac_shCRAMP1_dars_df_CPM_log_sub_mat1 <- Heatmap(as.matrix(atac_shCRAMP1_dars_df_CPM_log_sub[,c(1:4)]), na_col = "yellow", row_names_gp = gpar(fontsize = 5), cluster_rows = TRUE, cluster_columns = FALSE, use_raster = TRUE, row_km = 3)
+atac_shCRAMP1_dars_df_CPM_log_sub_mat2 <- Heatmap(as.matrix(atac_shCRAMP1_dars_df_CPM_log_sub[,c(5:9)]), na_col = "yellow", row_names_gp = gpar(fontsize = 5), cluster_rows = TRUE, cluster_columns = FALSE, use_raster = TRUE)
+atac_shCRAMP1_dars_df_CPM_log_sub_mat3 <- Heatmap(as.matrix(atac_shCRAMP1_dars_df_CPM_log_sub[,c(10:13)]), na_col = "yellow", row_names_gp = gpar(fontsize = 5), cluster_rows = TRUE, cluster_columns = FALSE, use_raster = TRUE)
+
+atac_shCRAMP1_dars_df_CPM_log_sub_mat1 + atac_shCRAMP1_dars_df_CPM_log_sub_mat2 + atac_shCRAMP1_dars_df_CPM_log_sub_mat3
+ # notes H1, TRB1, PRC2 activity
+library(M3C)
+# do PCA
+pca(atac_shCRAMP1_dars_df_CPM_log[,c(26:29,41:45,37:40)],colvec=c('gold'),printres=TRUE, text=colnames(atac_shCRAMP1_dars_df_CPM_log[,c(26:29,41:45,37:40)]))
 ################################################ END OF ANALYSIS ###########################################################
 
