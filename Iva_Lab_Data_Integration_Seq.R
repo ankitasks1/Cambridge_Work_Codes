@@ -179,20 +179,6 @@ fn_diffbind_de <- function(obj, fdr, fc){
   return(diffblist)
 }
 
-# annotation to genes and nearest distance filter
-fn_neares_gene_anno <- function(assaytype, contrasts, genefile, path, outformat){
-  for (i in names(contrasts)){
-    print(i)
-    all_df <- data.frame(contrasts[[i]][["all"]])
-    message("writing all data...")
-    write.table(all_df, paste0(path,"/",assaytype,"_",i,"_","all.",outformat), sep="\t", quote = F, append = F, row.names = F, col.names = F)
-    system(paste0("sort -k1,1 -k2,2n ", paste0(path,"/",assaytype,"_",i,"_","all.",outformat),  " | grep chr > ", paste0(path,"/",assaytype,"_",i,"_","all_sorted.",outformat)))
-  }
-}
-
-
-fn_neares_gene_anno("atacseqkd", atacseqkd_diffbind_list$dar_analysis$contrasts, atacseqkd_diffbind_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt")
-
 
 # limma based analysis
 fn_limma_create <- function(data, coldata){
@@ -234,6 +220,45 @@ fn_limma_de <- function(lmfit, contrasts, fdr, fc){
   }
   return(storelist)
 }
+
+
+# annotation to genes and nearest distance filter for all packages
+fn_nearest_gene_anno <- function(assaytype, software, contrasts, genefile, path, outformat, fdr, fc){
+  contrastlist <- list()
+  for (i in names(contrasts)){
+    print(i)
+    all_df <- data.frame(contrasts[[i]][["all"]])
+    message("writing all data...")
+    write.table(all_df, paste0(path,"/",assaytype, "_",software,"_",i,"_","all.",outformat), sep="\t", quote = F, append = F, row.names = F, col.names = F)
+    write.table(genefile, paste0(path,"/","gene_gencode_v41_out.",outformat), sep="\t", quote = F, append = F, row.names = F, col.names = F)
+    message("sorting...")
+    system(paste0("sort -k1,1 -k2,2n ", paste0(path,"/",assaytype, "_",software,"_",i,"_","all.",outformat),  " | grep chr > ", paste0(path,"/",assaytype, "_",software,"_",i,"_","all_sorted.",outformat)))
+    message("annotation to genes ...")
+    all_anno <- data.frame(fread(cmd=paste0("bedtools closest -a ", paste0(path,"/",assaytype, "_",software,"_",i,"_","all_sorted.",outformat), " -b ", paste0(path,"/","gene_gencode_v41_out.",outformat), " -d")))
+    colnames(all_anno) <- c(colnames(all_df), "gene_chr", "gene_start", "gene_end", "gene_strand", "gene_type", "ensID", "gene", "ens_gene","Distance")
+    storelist <- list()
+    storelist[["all"]] <- all_anno
+    message("getting peaks nearest distance to genes...")
+    nearest_distance = 5000
+    all_anno_nearest <- all_anno %>% dplyr::filter(Distance < nearest_distance )
+    storelist[["nearest"]][["all"]] <- all_anno_nearest
+    if (software == "diffbind"){
+      message(paste0("package used: ", software))
+      storelist[["nearest"]][["de"]] <- all_anno_nearest %>% dplyr::filter(FDR < fdr & (Fold > log(fc,2) | Fold < -log(fc,2))) 
+      storelist[["nearest"]][["up"]] <- all_anno_nearest %>% dplyr::filter(FDR < fdr & Fold > log(fc,2)) 
+      storelist[["nearest"]][["down"]] <- all_anno_nearest %>% dplyr::filter(FDR < fdr & Fold < -log(fc,2))
+      contrastlist[[i]] <- storelist
+    }else if (software == "limma") {
+      message(paste0("package used: ", software))
+      storelist[["nearest"]][["de"]] <- all_anno_nearest %>% dplyr::filter(adj.P.Val < fdr & (logFC > log(fc,2) | logFC < -log(fc,2))) 
+      storelist[["nearest"]][["up"]] <- all_anno_nearest %>% dplyr::filter(adj.P.Val < fdr & logFC > log(fc,2)) 
+      storelist[["nearest"]][["down"]] <- all_anno_nearest %>% dplyr::filter(adj.P.Val < fdr & logFC < -log(fc,2))
+      contrastlist[[i]] <- storelist
+    }
+  }
+  return(contrastlist)
+}
+
 ################################################
 ###       RNA-Seq data: Knockdown            ###
 ################################################
@@ -286,6 +311,7 @@ atacseqkd_diffbind_list[["dar_analysis"]] <- fn_diffbind_de(atacseqkd_diffbind_l
 
 atacseqkd_diffbind_list[["gene"]] <- fn_read_genefile("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/macs2/broad_peak/consensus/", "gene_gencode_human_gencode_out.sorted.chr.txt")
 
+atacseqkd_diffbind_list[["annotation"]] <- fn_nearest_gene_anno("atacseqkd", "diffbind",atacseqkd_diffbind_list$dar_analysis$contrasts, atacseqkd_diffbind_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt", 0.05, 2)
 
 # limma
 atacseqkd_limma_list <- list()
@@ -300,13 +326,11 @@ atacseqkd_limma_list[["dge_obj"]] <- fn_limma_create(atacseqkd_limma_list$counts
 atacseqkd_limma_list[["contrasts"]] <- limma::makeContrasts(paste0(colnames(atacseqkd_limma_list$dge_obj$design)[c(2,1)], collapse = "-"),
                                           paste0(colnames(atacseqkd_limma_list$dge_obj$design)[c(3,1)], collapse = "-"), levels = atacseqkd_limma_list$dge_obj$design)
 
-
-
 atacseqkd_limma_list[["dar_analysis"]] <- fn_limma_de(atacseqkd_limma_list$dge_obj$fit, atacseqkd_limma_list$contrasts, 0.05, 2)
 
+atacseqkd_limma_list[["gene"]] <- fn_read_genefile("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/macs2/broad_peak/consensus/", "gene_gencode_human_gencode_out.sorted.chr.txt")
 
-
-
+atacseqkd_limma_list[["annotation"]] <- fn_nearest_gene_anno("atacseqkd", "limma", atacseqkd_limma_list$dar_analysis$dars, atacseqkd_limma_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt", 0.05, 2)
 
 
 
