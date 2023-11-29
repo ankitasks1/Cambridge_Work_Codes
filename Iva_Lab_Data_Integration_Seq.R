@@ -127,6 +127,56 @@ fn_plot_venn <- function(list, color){
   return(ggvenn_list_venn)
 }
 # edger based analysis
+fn_edger_create <- function(data, coldata){
+  storelist <- list()
+  message("creating group... ")
+  group <- factor(coldata$Condition, levels = unique(coldata$Condition))
+  
+  message("creating dgelist object... ")
+  storelist[["dgelist"]] <- edgeR::DGEList(data, group = group)
+  keep <- filterByExpr(storelist$dgelist, storelist$design)
+  storelist$dgelist <- storelist$dgelist[keep,,keep.lib.sizes=FALSE]
+  
+  message("performing normalisation... ")
+  storelist$dgelist <- calcNormFactors(storelist$dgelist)
+  
+  message("creating design... ")
+  storelist[["design"]] <- model.matrix(~group)
+  colnames(storelist$design) <- levels(storelist$dgelist$samples$group)
+  
+  message("estimating dispersion... ")
+  storelist$dgelist <- estimateGLMCommonDisp(storelist$dgelist, storelist$design)
+  storelist$dgelist <- estimateGLMTrendedDisp(storelist$dgelist, storelist$design) 
+  storelist$dgelist <- estimateGLMTagwiseDisp(storelist$dgelist, storelist$design)
+  
+  message("performing MDS analysis")
+  storelist[["mds"]] <- limma::plotMDS(storelist$dgelist, col=c("red", "blue", "blue", "blue"), pch=6,cex = 3)
+  storelist[["bcv"]] <- plotBCV(storelist$dgelist)
+  
+  message("performing model fitting using design... ")
+  storelist[["lmfit"]] <- glmFit(storelist$dgelist, storelist$design)
+  return(storelist)
+}
+
+fn_edger_de <- function(lmfit, design, fdr, fc){  
+  storelist <- list()
+  delist <- list()
+  message("obtaining de results...")
+  for (i in c(2,3)){
+    lrt <- glmLRT(lmfit, coef=i)
+    delist[["class"]] <- topTags(lrt, n = Inf, sort.by = "PValue", p.value = 1, adjust.method="BH")
+    delist[["all"]] <- delist$class$table
+    comparison <- unique(delist$class$comparison)
+    delist$all["coordinates"] <- rownames(delist$all)
+    delist$all <- data.frame(splitstackshape::cSplit(delist$all, "coordinates", "%"))
+    delist$all <- delist$all[,c((dim(delist$all)[2] -2): (dim(delist$all)[2]), 1:(dim(delist$all)[2]-3))]
+    delist[["de"]] <- delist$all %>% dplyr::filter(FDR < fdr & (logFC > log(fc,2) | logFC < -log(fc,2)))
+    delist[["up"]] <- delist$all %>% dplyr::filter(FDR < fdr & (logFC > log(fc,2)))
+    delist[["down"]] <- delist$all %>% dplyr::filter(FDR < fdr & (logFC < -log(fc,2)))
+    storelist[["dars"]][[paste0("coef_", comparison)]] <- delist
+  }
+  return(storelist)
+}
 
 # diffbind based analysis
 fn_diffbind_prep <- function(samplesheet){
@@ -165,8 +215,8 @@ fn_diffbind_de <- function(obj, fdr, fc){
     # Extracting results, contrast 1 means , th means threshold for FDR, which if 1 give all sites 
     storelist[["all"]] <- data.frame(dba.report(diffblist$norm, method=DBA_EDGER, contrast = i, th=1))
     storelist[["de"]] <- storelist$all %>% dplyr::filter(FDR < fdr & (Fold > log(fc,2) | Fold < -log(fc,2)))
-    storelist[["up"]] <- storelist$all %>% dplyr::filter(FDR < fdr & (Fold > log(fc,2) | Fold < -log(fc,2)))
-    storelist[["down"]] <- storelist$all %>% dplyr::filter(FDR < fdr & (Fold > log(fc,2) | Fold < -log(fc,2)))
+    storelist[["up"]] <- storelist$all %>% dplyr::filter(FDR < fdr & (Fold > log(fc,2)))
+    storelist[["down"]] <- storelist$all %>% dplyr::filter(FDR < fdr & (Fold < -log(fc,2)))
     message("Performing PCA plot...")
     storelist[["pca"]] <- dba.plotPCA(diffblist$norm, contrast=i, method=DBA_EDGER, attributes=DBA_FACTOR, label=DBA_ID)
     message("Performing venn diagran...")
@@ -212,10 +262,10 @@ fn_limma_de <- function(lmfit, contrasts, fdr, fc){
     delist[["all"]] <- topTable(storelist$fit2, number=Inf,coef=cont, adjust="BH")
     delist$all["coordinates"] <- rownames(delist$all)
     delist$all <- data.frame(splitstackshape::cSplit(delist$all, "coordinates", "%"))
-    delist$all <- delist$all[,c(7:9,1:6)]
+    delist$all <- delist$all[,c((dim(delist$all)[2] -2): (dim(delist$all)[2]), 1:(dim(delist$all)[2]-3))]
     delist[["de"]] <- delist$all %>% dplyr::filter(adj.P.Val < fdr & (logFC > log(fc,2) | logFC < -log(fc,2)))
-    delist[["up"]] <- delist$all %>% dplyr::filter(adj.P.Val < fdr & (logFC > log(fc,2) | logFC < -log(fc,2)))
-    delist[["down"]] <- delist$all %>% dplyr::filter(adj.P.Val < fdr & (logFC > log(fc,2) | logFC < -log(fc,2)))
+    delist[["up"]] <- delist$all %>% dplyr::filter(adj.P.Val < fdr & (logFC > log(fc,2)))
+    delist[["down"]] <- delist$all %>% dplyr::filter(adj.P.Val < fdr & (logFC < -log(fc,2)))
     storelist[["dars"]][[paste0("coef_", gsub("-","_",cont))]] <- delist
   }
   return(storelist)
@@ -237,7 +287,7 @@ fn_nearest_gene_anno <- function(assaytype, software, contrasts, genefile, path,
     all_anno <- data.frame(fread(cmd=paste0("bedtools closest -a ", paste0(path,"/",assaytype, "_",software,"_",i,"_","all_sorted.",outformat), " -b ", paste0(path,"/","gene_gencode_v41_out.",outformat), " -d")))
     colnames(all_anno) <- c(colnames(all_df), "gene_chr", "gene_start", "gene_end", "gene_strand", "gene_type", "ensID", "gene", "ens_gene","Distance")
     storelist <- list()
-    storelist[["all"]] <- all_anno
+    storelist[["all"]][["all"]] <- all_anno
     message("getting peaks nearest distance to genes...")
     nearest_distance = 5000
     all_anno_nearest <- all_anno %>% dplyr::filter(Distance < nearest_distance )
@@ -245,19 +295,46 @@ fn_nearest_gene_anno <- function(assaytype, software, contrasts, genefile, path,
     if (software == "diffbind"){
       message(paste0("package used: ", software))
       storelist[["nearest"]][["de"]] <- all_anno_nearest %>% dplyr::filter(FDR < fdr & (Fold > log(fc,2) | Fold < -log(fc,2))) 
-      storelist[["nearest"]][["up"]] <- all_anno_nearest %>% dplyr::filter(FDR < fdr & Fold > log(fc,2)) 
-      storelist[["nearest"]][["down"]] <- all_anno_nearest %>% dplyr::filter(FDR < fdr & Fold < -log(fc,2))
+      storelist[["nearest"]][["up"]] <- all_anno_nearest %>% dplyr::filter(FDR < fdr & (Fold > log(fc,2)))
+      storelist[["nearest"]][["down"]] <- all_anno_nearest %>% dplyr::filter(FDR < fdr & (Fold < -log(fc,2)))
+      storelist[["all"]][["de"]] <- all_anno %>% dplyr::filter(FDR < fdr & (Fold > log(fc,2) | Fold < -log(fc,2))) 
+      storelist[["all"]][["up"]] <- all_anno %>% dplyr::filter(FDR < fdr & (Fold > log(fc,2)))
+      storelist[["all"]][["down"]] <- all_anno %>% dplyr::filter(FDR < fdr & (Fold < -log(fc,2)))
       contrastlist[[i]] <- storelist
     }else if (software == "limma") {
       message(paste0("package used: ", software))
       storelist[["nearest"]][["de"]] <- all_anno_nearest %>% dplyr::filter(adj.P.Val < fdr & (logFC > log(fc,2) | logFC < -log(fc,2))) 
-      storelist[["nearest"]][["up"]] <- all_anno_nearest %>% dplyr::filter(adj.P.Val < fdr & logFC > log(fc,2)) 
-      storelist[["nearest"]][["down"]] <- all_anno_nearest %>% dplyr::filter(adj.P.Val < fdr & logFC < -log(fc,2))
+      storelist[["nearest"]][["up"]] <- all_anno_nearest %>% dplyr::filter(adj.P.Val < fdr & (logFC > log(fc,2)))
+      storelist[["nearest"]][["down"]] <- all_anno_nearest %>% dplyr::filter(adj.P.Val < fdr & (logFC < -log(fc,2)))
+      storelist[["all"]][["de"]] <- all_anno %>% dplyr::filter(adj.P.Val < fdr & (logFC > log(fc,2) | logFC < -log(fc,2))) 
+      storelist[["all"]][["up"]] <- all_anno %>% dplyr::filter(adj.P.Val < fdr & (logFC > log(fc,2)))
+      storelist[["all"]][["down"]] <- all_anno %>% dplyr::filter(adj.P.Val < fdr & (logFC < -log(fc,2)))
+      contrastlist[[i]] <- storelist
+    }else if (software == "edger") {
+      message(paste0("package used: ", software))
+      storelist[["nearest"]][["de"]] <- all_anno_nearest %>% dplyr::filter(FDR < fdr & (logFC > log(fc,2) | logFC < -log(fc,2))) 
+      storelist[["nearest"]][["up"]] <- all_anno_nearest %>% dplyr::filter(FDR < fdr & (logFC > log(fc,2)))
+      storelist[["nearest"]][["down"]] <- all_anno_nearest %>% dplyr::filter(FDR < fdr & (logFC < -log(fc,2)))
+      storelist[["all"]][["de"]] <- all_anno %>% dplyr::filter(FDR < fdr & (logFC > log(fc,2) | logFC < -log(fc,2))) 
+      storelist[["all"]][["up"]] <- all_anno %>% dplyr::filter(FDR < fdr & (logFC > log(fc,2)))
+      storelist[["all"]][["down"]] <- all_anno %>% dplyr::filter(FDR < fdr & (logFC < -log(fc,2)))
       contrastlist[[i]] <- storelist
     }
   }
   return(contrastlist)
 }
+
+# prepare bed files for dars, dbrs
+fn_export_bed <- function(path, annotation, type, de_pattern, outformat){
+  for (names in names(annotation)){
+    for (de_pattern in names(annotation[[names]][[type]])){
+      write.table(annotation[[names]][[type]][[de_pattern]], paste0(path, "/",
+                                                                    gsub("\\$", "_", deparse(substitute(annotation))),"_",names, "_",type, "_",de_pattern, ".",outformat), 
+                  sep="\t", append = F, quote=F, col.names = T, row.names = F)
+    }
+  }
+}
+
 
 ################################################
 ###       RNA-Seq data: Knockdown            ###
@@ -323,7 +400,7 @@ atacseqkd_limma_list$coldata$Condition <- factor(atacseqkd_limma_list$coldata$Co
 atacseqkd_limma_list[["dge_obj"]] <- fn_limma_create(atacseqkd_limma_list$counts, atacseqkd_limma_list$coldata)
 
 # create contrasts
-atacseqkd_limma_list[["contrasts"]] <- limma::makeContrasts(paste0(colnames(atacseqkd_limma_list$dge_obj$design)[c(2,1)], collapse = "-"),
+atacseqkd_limma_list[["contrasts"]] <- limma::makeContrasts(paste0(colnames(atacseqkd_limma_list$dge_obj$design)[c(2,1)], collapse = "_vs_"),
                                           paste0(colnames(atacseqkd_limma_list$dge_obj$design)[c(3,1)], collapse = "-"), levels = atacseqkd_limma_list$dge_obj$design)
 
 atacseqkd_limma_list[["dar_analysis"]] <- fn_limma_de(atacseqkd_limma_list$dge_obj$fit, atacseqkd_limma_list$contrasts, 0.05, 2)
@@ -333,6 +410,24 @@ atacseqkd_limma_list[["gene"]] <- fn_read_genefile("/mnt/home3/reid/av638/atacse
 atacseqkd_limma_list[["annotation"]] <- fn_nearest_gene_anno("atacseqkd", "limma", atacseqkd_limma_list$dar_analysis$dars, atacseqkd_limma_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt", 0.05, 2)
 
 
+# edgeR analysis
+atacseqkd_edger_list <- list()
+atacseqkd_counts <- data.frame(atacseqkd_diffbind_list$counts$dba_obj$binding)
+rownames(atacseqkd_counts) <- paste0("chr",atacseqkd_counts$CHR, "%",atacseqkd_counts$START,"%", atacseqkd_counts$END)
+atacseqkd_edger_list[["counts"]] <- atacseqkd_counts[,c(4:9)]
+atacseqkd_edger_list[["coldata"]] <- atacseqkd_diffbind_list$counts$info
+atacseqkd_edger_list$coldata$Condition <- factor(atacseqkd_edger_list$coldata$Condition)
+atacseqkd_edger_list[["dge_obj"]] <- fn_edger_create(atacseqkd_edger_list$counts, atacseqkd_edger_list$coldata)
+
+atacseqkd_edger_list[["dar_analysis"]] <- fn_edger_de(atacseqkd_edger_list$dge_obj$lmfit, atacseqkd_edger_list$dge_obj$design, 0.05, 2)
+
+atacseqkd_edger_list[["gene"]] <- fn_read_genefile("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/macs2/broad_peak/consensus/", "gene_gencode_human_gencode_out.sorted.chr.txt")
+
+atacseqkd_edger_list[["annotation"]] <- fn_nearest_gene_anno("atacseqkd", "edger", atacseqkd_edger_list$dar_analysis$dars, atacseqkd_edger_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt", 0.05, 2)
+
+
+#  export bed files
+fn_export_bed("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", atacseqkd_edger_list$annotation, "all", "all", "txt")
 
 
 
