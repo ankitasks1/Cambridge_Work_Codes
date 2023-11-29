@@ -324,7 +324,7 @@ fn_nearest_gene_anno <- function(assaytype, software, contrasts, genefile, path,
   return(contrastlist)
 }
 
-# prepare bed files for dars, dbrs
+# export bed files for dars, dbrs
 fn_export_bed <- function(path, annotation, type, de_pattern, outformat){
   for (names in names(annotation)){
     for (de_pattern in names(annotation[[names]][[type]])){
@@ -333,6 +333,44 @@ fn_export_bed <- function(path, annotation, type, de_pattern, outformat){
                   sep="\t", append = F, quote=F, col.names = T, row.names = F)
     }
   }
+}
+
+# run chipseeker
+"peakformat=*.broadPeak"
+"txdb=TxDb.Hsapiens.UCSC.hg38.knownGene"
+"org_db=org.Hs.eg.db"
+"assaytype=atacseqkd"
+fn_run_chipseeker <- function(peaks_path, assaytype, txdb, org_db, peakformat){
+  storelist <- list()
+  peakfiles <- list.files(path=peaks_path,pattern = peakformat)
+  for (peaksfile in peakfiles){
+    print(peaksfile)
+    message("reading peaklist...")
+    peaks_temp <- read.table(paste0(peaks_path,peaksfile), header = F)
+    print(class(peaks_temp))
+    message("making GRanges object...")
+    peaks_tempgr <- makeGRangesFromDataFrame(peaks_temp,keep.extra.columns=TRUE, seqnames.field=c("V1"),start.field=c("V2"),end.field=c("V3"))
+    storelist[["gr_obj"]][[peaksfile]] <- peaks_tempgr
+    message("annotating peaks...")
+    print(txdb)
+    print(org_db)
+    print(head(peaks_tempgr))
+    peaks_tempgr_anno <- ChIPseeker::annotatePeak(peaks_tempgr, tssRegion=c(-1000, 1000),TxDb=txdb, annoDb=org_db)
+    storelist[["gr_anno"]][[peaksfile]] <- peaks_tempgr_anno
+    message("plotting pie, bar, disToTSS...")
+    storelist[["plotAnnoPie"]][[peaksfile]] <- plotAnnoPie(peaks_tempgr_anno)
+    storelist[["plotAnnoBar"]] <- plotAnnoBar(storelist$gr_anno)
+    storelist[["plotDistToTSS"]] <- plotDistToTSS(storelist$gr_anno)
+    message("fetaching promoter...")
+    promoter <- getPromoters(TxDb=txdb, upstream=3000, downstream=3000)
+    message("generating tagmatrix...")
+    storelist[["tagMatrixList"]] <- lapply(storelist[["gr_obj"]], getTagMatrix, windows=promoter)
+    message("plotting average plot...")
+    storelist[["plotAvgProf"]] <- plotAvgProf(storelist[["tagMatrixList"]], xlim=c(-3000, 3000), conf=0.95,resample=500, facet="row")
+    ## binning method
+    storelist[["plotPeakProf2"]] <- plotPeakProf2(storelist[["gr_obj"]], upstream = 3000, downstream = 3000, conf = 0.95,by = "gene", type = "start_site", TxDb = txdb, facet = "row", nbin = 800)
+  }
+  return(storelist)
 }
 
 
@@ -425,7 +463,8 @@ atacseqkd_edger_list[["gene"]] <- fn_read_genefile("/mnt/home3/reid/av638/atacse
 
 atacseqkd_edger_list[["annotation"]] <- fn_nearest_gene_anno("atacseqkd", "edger", atacseqkd_edger_list$dar_analysis$dars, atacseqkd_edger_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt", 0.05, 2)
 
-
+atacseqkd_edger_list[["chipseeker"]] <- fn_run_chipseeker("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/macs2/broad_peak/", "atacseqkd", "TxDb.Hsapiens.UCSC.hg38.knownGene", "org.Hs.eg.db", "*.broadPeak")
+  
 #  export bed files
 fn_export_bed("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", atacseqkd_edger_list$annotation, "all", "all", "txt")
 
