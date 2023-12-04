@@ -52,11 +52,17 @@ fn_dds_counts <- function(dds){
   return(counts)
 }
 
-fn_sample_filter <- function(countmatrix, columnsremove){
-  countmatrix <- countmatrix[,-columnsremove] # columns is vector eg, c(7:9)
-  countmatrix <- data.frame(countmatrix)
-  countmatrix["ensID"] <- rownames(countmatrix)
-  return(countmatrix)
+fn_sample_filter <- function(countmatrix, samplefilter, columnsremove){
+  if (samplefilter == TRUE){
+    countmatrix <- countmatrix[,-columnsremove] # columns is vector eg, c(7:9)
+    countmatrix <- data.frame(countmatrix)
+    countmatrix["ensID"] <- rownames(countmatrix)
+    return(countmatrix)
+  }else {
+    countmatrix <- data.frame(countmatrix)
+    countmatrix["ensID"] <- rownames(countmatrix)
+    return(countmatrix)
+  }
 }
 
 fn_reassign_genenames <- function(countmatrix, genedf, columnskeep){
@@ -66,17 +72,24 @@ fn_reassign_genenames <- function(countmatrix, genedf, columnskeep){
   return(genecounts)
 }
 
-fn_make_coldata_dds <- function(dds, rowsremove){
-  coldata <- data.frame(colData(dds))
-  colnames(coldata) <- c("sample", "condition", "replicate", "sizeFactor")
-  coldata <- coldata[-rowsremove,] # columns is vector eg, c(7:9)
-  coldata$condition <- factor(coldata$condition)
-  coldata$replicate <- factor(coldata$replicate)
-  return(coldata)
+fn_make_coldata_dds <- function(dds, samplefilter,rowsremove){
+  if(samplefilter == TRUE){
+    coldata <- data.frame(colData(dds))
+    colnames(coldata) <- c("sample", "condition", "replicate", "sizeFactor")
+    coldata <- coldata[-rowsremove,] # columns is vector eg, c(7:9)
+    coldata$condition <- factor(coldata$condition)
+    coldata$replicate <- factor(coldata$replicate)
+    return(coldata)
+  }else{
+    coldata <- data.frame(colData(dds))
+    colnames(coldata) <- c("sample", "condition", "replicate", "sizeFactor")
+    coldata$condition <- factor(coldata$condition)
+    coldata$replicate <- factor(coldata$replicate)
+    return(coldata)
+  }
 }
 
-
-fn_deseq2 <- function(counts, coldata, fdr, fc, contrasts){
+fn_deseq2 <- function(counts, coldata, fdr, fc){
   storelist <- list()
   ddsO <- DESeq2::DESeqDataSetFromMatrix(countData = as.matrix(counts), colData = coldata, design = ~ condition)
   keep <- rowSums(counts(ddsO)) > 10
@@ -96,24 +109,24 @@ fn_deseq2 <- function(counts, coldata, fdr, fc, contrasts){
     for (cont2 in unique(coldata$condition)){
       if (cont1!=cont2){
         print(paste0(cont1,"_",cont2))
-        rnaseqde <- DESeq2::results(storelist$ddsO, contrast=c("condition", cont1, cont2))
-        rnaseqde = rnaseqde[order(rownames(rnaseqde)),]
-        rnaseqde["ensID_Gene"] <- rownames(rnaseqde)
-        rnaseqdedf <- data.frame(rnaseqde)
-        rnaseqdedf["ensID_Gene"] <- rownames(rnaseqdedf)
+        assayseqde <- DESeq2::results(storelist$ddsO, contrast=c("condition", cont1, cont2))
+        assayseqde = assayseqde[order(rownames(assayseqde)),]
+        assayseqde["ensID_Gene"] <- rownames(assayseqde)
+        assayseqdedf <- data.frame(assayseqde)
+        assayseqdedf["ensID_Gene"] <- rownames(assayseqdedf)
         message("Applying fdr and logfc cutoff...")
         # padj filter
-        rnaseqde$threshold <- as.logical(rnaseqde$padj < fdr)
-        rnaseqde0.05 <- data.frame(rnaseqde[which(rnaseqde$threshold == TRUE),])
+        assayseqde$threshold <- as.logical(assayseqde$padj < fdr)
+        assayseqde0.05 <- data.frame(assayseqde[which(assayseqde$threshold == TRUE),])
         # logfc filter
-        rnaseqde0.05_de <- rnaseqde0.05 %>% dplyr::filter((log2FoldChange > log(fc,2)) | (log2FoldChange < -log(fc,2)))
-        rnaseqde0.05_up <- rnaseqde0.05 %>% dplyr::filter((log2FoldChange > log(fc,2)))
-        rnaseqde0.05_down <- rnaseqde0.05 %>% dplyr::filter((log2FoldChange < -log(fc,2)))
-        contrast_list[[paste0(cont1,"_",cont2)]] <- list(all=rnaseqdedf, de=rnaseqde0.05_de, up=rnaseqde0.05_up, down=rnaseqde0.05_down)
+        assayseqde0.05_de <- assayseqde0.05 %>% dplyr::filter((log2FoldChange > log(fc,2)) | (log2FoldChange < -log(fc,2)))
+        assayseqde0.05_up <- assayseqde0.05 %>% dplyr::filter((log2FoldChange > log(fc,2)))
+        assayseqde0.05_down <- assayseqde0.05 %>% dplyr::filter((log2FoldChange < -log(fc,2)))
+        contrast_list[[paste0(cont1,"_",cont2)]] <- list(all=assayseqdedf, de=assayseqde0.05_de, up=assayseqde0.05_up, down=assayseqde0.05_down)
         message("Plotting MA plot...")
-        ma_list[[paste0(cont1,"_",cont2)]] <- ggmaplot(rnaseqdedf, fdr = fdr, fc = fc, size = 0.3, palette = c("#D22B2B", "#1465AC", "darkgray"),
-                 genenames = unlist(lapply(strsplit(rnaseqdedf$ensID_Gene, "%"), function(x) x[2])), legend = "top", top = 20, font.label = c("bold", 5),
-                 font.legend = "bold", font.main = "bold", ggtheme = ggplot2::theme_minimal())
+        ma_list[[paste0(cont1,"_",cont2)]] <- ggmaplot(assayseqdedf, fdr = fdr, fc = fc, size = 0.3, palette = c("#D22B2B", "#1465AC", "darkgray"),
+                                                       genenames = unlist(lapply(strsplit(assayseqdedf$ensID_Gene, "%"), function(x) x[2])), legend = "top", top = 20, font.label = c("bold", 5),
+                                                       font.legend = "bold", font.main = "bold", ggtheme = ggplot2::theme_minimal())
       }
     }
   }
@@ -121,6 +134,7 @@ fn_deseq2 <- function(counts, coldata, fdr, fc, contrasts){
   storelist[["ma_plots"]] <- ma_list
   return(storelist)
 }
+
 
 fn_plot_venn <- function(list, color){
   ggvenn_list_venn <- ggvenn(list, fill_color = color, stroke_size = 0.5, set_name_size = 4)
@@ -319,6 +333,60 @@ fn_nearest_gene_anno <- function(assaytype, software, contrasts, genefile, path,
       storelist[["all"]][["up"]] <- all_anno %>% dplyr::filter(FDR < fdr & (logFC > log(fc,2)))
       storelist[["all"]][["down"]] <- all_anno %>% dplyr::filter(FDR < fdr & (logFC < -log(fc,2)))
       contrastlist[[i]] <- storelist
+    }else if (software == "deseq2") {
+      message(paste0("package used: ", software))
+      storelist[["nearest"]][["de"]] <- all_anno_nearest %>% dplyr::filter(padj < fdr & (log2FoldChange > log(fc,2) | log2FoldChange < -log(fc,2))) 
+      storelist[["nearest"]][["up"]] <- all_anno_nearest %>% dplyr::filter(padj < fdr & (log2FoldChange > log(fc,2)))
+      storelist[["nearest"]][["down"]] <- all_anno_nearest %>% dplyr::filter(padj < fdr & (log2FoldChange < -log(fc,2)))
+      storelist[["all"]][["de"]] <- all_anno %>% dplyr::filter(padj < fdr & (log2FoldChange > log(fc,2) | log2FoldChange < -log(fc,2))) 
+      storelist[["all"]][["up"]] <- all_anno %>% dplyr::filter(padj < fdr & (log2FoldChange > log(fc,2)))
+      storelist[["all"]][["down"]] <- all_anno %>% dplyr::filter(padj < fdr & (log2FoldChange < -log(fc,2)))
+      contrastlist[[i]] <- storelist
+    }
+  }
+  return(contrastlist)
+}
+
+fn_consensus_gene_anno <- function(assaytype, software, contrasts, consensus_bed, genefile, path, outformat, fdr, fc){
+  message("writing consensus peaks data...")
+  write.table(consensus_bed, paste0(path,"/",assaytype, "_","consensus_peaks.",outformat), sep="\t", quote = F, append = F, row.names = F, col.names = F)
+  
+  message("writing gene peaks data...")
+  write.table(genefile, paste0(path,"/","gene_gencode_v41_out.",outformat), sep="\t", quote = F, append = F, row.names = F, col.names = F)
+  
+  message("sorting consensus and genefile...")
+  system(paste0("sort -k1,1 -k2,2n ", paste0(path,"/",assaytype, "_","consensus_peaks.",outformat), " | grep chr > ", paste0(path,"/",assaytype, "_","consensus_peaks.",outformat), ".chr.bed"))
+  system(paste0("sort -k1,1 -k2,2n ", paste0(path,"/","gene_gencode_v41_out.",outformat), " | grep chr > ", paste0(path,"/","gene_gencode_v41_out.",outformat), ".sorted.chr.txt"))
+  
+  message("annotating consensus peaks file to genes...")
+  system(paste0("bedtools closest -a ", paste0(path,"/",assaytype, "_","consensus_peaks.",outformat), ".chr.bed", " -b ", paste0(path,"/","gene_gencode_v41_out.",outformat), ".sorted.chr.txt", " -d > ", paste0(path,"/",assaytype, "_","consensus_peaks.",outformat), ".chr.anno.bed"))
+
+  consensus_to_gene <- data.frame(fread(paste0(paste0(path,"/",assaytype, "_","consensus_peaks.",outformat), ".chr.anno.bed")))
+  colnames(consensus_to_gene) <- c("peak_chr","peak_start", "peak_end","peak_interval","peak_score","peak_strand" ,"gene_chr", "gene_start", "gene_end", "gene_strand", "gene_type", "ensID", "gene", "ens_gene","Distance")
+  
+  contrastlist <- list()
+  for (i in names(contrasts)){
+    print(i)
+    all_df <- data.frame(contrasts[[i]][["all"]])
+    
+    message("annotation to consensus gene ...")
+    all_anno <- merge(all_df, consensus_to_gene, by.x="ensID_Gene", by.y="peak_interval", all.y=T)
+    storelist <- list()
+    storelist[["all"]][["all"]] <- all_anno
+    
+    message("getting peaks nearest distance to genes...")
+    nearest_distance = 5000
+    all_anno_nearest <- all_anno %>% dplyr::filter(Distance < nearest_distance )
+    storelist[["nearest"]][["all"]] <- all_anno_nearest
+    if (software == "deseq2"){
+      message(paste0("package used: ", software))
+      storelist[["nearest"]][["de"]] <- all_anno_nearest %>% dplyr::filter(padj < fdr & (log2FoldChange > log(fc,2) | log2FoldChange < -log(fc,2))) 
+      storelist[["nearest"]][["up"]] <- all_anno_nearest %>% dplyr::filter(padj < fdr & (log2FoldChange > log(fc,2)))
+      storelist[["nearest"]][["down"]] <- all_anno_nearest %>% dplyr::filter(padj < fdr & (log2FoldChange < -log(fc,2)))
+      storelist[["all"]][["de"]] <- all_anno %>% dplyr::filter(padj < fdr & (log2FoldChange > log(fc,2) | log2FoldChange < -log(fc,2))) 
+      storelist[["all"]][["up"]] <- all_anno %>% dplyr::filter(padj < fdr & (log2FoldChange > log(fc,2)))
+      storelist[["all"]][["down"]] <- all_anno %>% dplyr::filter(padj < fdr & (log2FoldChange < -log(fc,2)))
+      contrastlist[[i]] <- storelist
     }
   }
   return(contrastlist)
@@ -359,19 +427,71 @@ fn_run_chipseeker <- function(peaks_path, assaytype, txdb, org_db, peakformat){
     storelist[["gr_anno"]][[peaksfile]] <- peaks_tempgr_anno
     message("plotting pie, bar, disToTSS...")
     storelist[["plotAnnoPie"]][[peaksfile]] <- plotAnnoPie(peaks_tempgr_anno)
-    storelist[["plotAnnoBar"]] <- plotAnnoBar(storelist$gr_anno)
-    storelist[["plotDistToTSS"]] <- plotDistToTSS(storelist$gr_anno)
-    message("fetaching promoter...")
-    promoter <- getPromoters(TxDb=txdb, upstream=3000, downstream=3000)
-    message("generating tagmatrix...")
-    storelist[["tagMatrixList"]] <- lapply(storelist[["gr_obj"]], getTagMatrix, windows=promoter)
-    message("plotting average plot...")
-    storelist[["plotAvgProf"]] <- plotAvgProf(storelist[["tagMatrixList"]], xlim=c(-3000, 3000), conf=0.95,resample=500, facet="row")
-    ## binning method
-    storelist[["plotPeakProf2"]] <- plotPeakProf2(storelist[["gr_obj"]], upstream = 3000, downstream = 3000, conf = 0.95,by = "gene", type = "start_site", TxDb = txdb, facet = "row", nbin = 800)
   }
+  storelist[["plotAnnoBar"]] <- plotAnnoBar(storelist$gr_anno)
+  storelist[["plotDistToTSS"]] <- plotDistToTSS(storelist$gr_anno)
+  message("fetaching promoter...")
+  promoter <- getPromoters(TxDb=txdb, upstream=3000, downstream=3000)
+  message("generating tagmatrix...")
+  storelist[["tagMatrixList"]] <- lapply(storelist[["gr_obj"]], getTagMatrix, windows=promoter)
+  message("plotting average plot...")
+  storelist[["plotAvgProf"]] <- plotAvgProf(storelist[["tagMatrixList"]], xlim=c(-3000, 3000), conf=0.95,resample=500, facet="row")
+  storelist[["plotPeakProf2"]] <- plotPeakProf2(storelist[["gr_obj"]], upstream = 3000, downstream = 3000, conf = 0.95,by = "gene", type = "start_site", TxDb = txdb, facet = "row", nbin = 800)
   return(storelist)
 }
+
+# quantify per gene
+peaks_path = 
+bamfile = "\\.name\\.bam$"
+bedfile = "_chr.bedpe"
+sites_file = "atac_shControl_merged.txt"
+fn_quantify_feature <- function(peaks_path, assaytype, bamfile, bedfile ,sites_file){
+  bam_files <- list.files(peaks_path, pattern = bamfile, full.names = TRUE)
+  for (bam_file in bam_files) {
+    cat(paste("Processing BAM file:", bam_file, "\n"))
+    output_file <- paste0(sub("\\.name\\.bam$", "", bam_file), "_ac_coverage.pe.bed")
+    bedtools_command <- paste("bedtools coverage -a", sites_file, "-b", paste0(bam_file, bedfile), "| sort -k1,1 -k2,2n >", output_file)
+    # system(bedtools_command, intern = TRUE)
+    print(bedtools_command)
+  }
+}
+
+fn_quantify_feature("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library", "atacseqkd", "\\.name\\.bam$", "_chr.bedpe" , "atac_shControl_merged.txt")
+
+# aggregate value per feature
+fn_aggregate_feature <- function(annomatrix, column, valuecolumn, operation){
+  storelist <- list()
+  storelist[[operation]] <- aggregate(annomatrix[,valuecolumn],by=list(annomatrix[[column]]), operation)
+  return(storelist)
+}
+
+
+# intergate multiple omics data
+fn_integrate_omicsdata <- function(omics_data_path_lists, binsize, columns_pos, columns_samples){
+  storelist <- list()
+  omics_data_path_bin <- omics_data_path_lists[grepl("5kb", omics_data_path_lists)]
+  bin_list <- list()
+  for (files in omics_data_path_bin){
+    filename <- sub("\\..*", "", basename(files))
+    print(filename)
+    bin_list[[filename]] <- data.frame(fread(files, header = F))
+  }
+  
+  bin_df <- do.call(cbind.data.frame, bin_list)
+  bin_df <- bin_df[,c(columns_pos, columns_samples)]
+  storelist[["df"]] <- bin_df
+  rownames(bin_df) <- as.character(apply(bin_df[,columns_pos], 1, function(df) paste0(df, collapse = "%")))
+  bin_df <- bin_df[,-columns_pos]
+  colnames(bin_df) <- gsub(".V4","", colnames(bin_df))
+  
+  # remove empty bins
+  bin_df_filt <- bin_df[rowSums(bin_df) > 0,]
+  bin_df_CPM <- edgeR::cpm(bin_df_filt)
+  storelist[["cpm"]] <- bin_df_CPM
+  bin_df_CPM_log <- data.frame(log(bin_df_CPM + 1, 2))
+  storelist[["cpm_log"]] <- bin_df_CPM_log
+  return(storelist)
+} 
 
 
 ################################################
@@ -384,15 +504,15 @@ rnaseqkd_list <- list()
 rnaseqkd_list[["dds"]] <- fn_load_rdata(rnaseqkd_path, "outfolder/star_salmon/deseq2_qc/deseq2.dds.RData")
 rnaseqkd_list[["gene"]] <- fn_read_genefile(rnaseqkd_path, "gene_gencode_human__gencode_out_chr.txt")
 rnaseqkd_list[["counts"]] <- fn_dds_counts(rnaseqkd_list$dds)
-rnaseqkd_list[["samples_selected"]] <- fn_sample_filter(rnaseqkd_list$counts, c(7:9))
+rnaseqkd_list[["samples_selected"]] <- fn_sample_filter(rnaseqkd_list$counts, samplefilter = TRUE, c(7:9))
 rnaseqkd_list[["processed_counts"]] <- fn_reassign_genenames(rnaseqkd_list$samples_selected, rnaseqkd_list$gene, c(2:10))
-rnaseqkd_list[["coldata"]] <- fn_make_coldata_dds(rnaseqkd_list$dds, c(7:9))
+rnaseqkd_list[["coldata"]] <- fn_make_coldata_dds(rnaseqkd_list$dds, samplefilter = TRUE, c(7:9))
 
 # check
 all(rownames(rnaseqkd_list$coldata) == colnames(rnaseqkd_list$processed_counts)) #should print TRUE
 
 # de analysis
-rnaseqkd_list[["deseq2"]] <- fn_deseq2(rnaseqkd_list$processed_counts, rnaseqkd_list$coldata, 0.05, 2, rnaseqkd_contrasts)
+rnaseqkd_list[["deseq2"]] <- fn_deseq2(rnaseqkd_list$processed_counts, rnaseqkd_list$coldata, 0.05, 2)
 
 # Overlap between cramp1 and suz12 target genes
 # Venn diagram
@@ -413,6 +533,40 @@ set_rnaseqde_merged_shC1_shS_up <- rbind.data.frame(set_rnaseqde_uniq_shC1_up, s
 ################################################
 ###       ATAC-Seq data: Knockdown           ###
 ################################################
+
+# deseq2 with consensus peaks (direct from nextflow)
+atacseqkd_deseq2_path <- "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/"
+
+atacseqkd_deseq2_list <- list()
+
+atacseqkd_deseq2_list[["dds"]] <- fn_load_rdata(atacseqkd_deseq2_path, "boutfolder/bowtie2/merged_library/macs2/broad_peak/consensus/deseq2/consensus_peaks.mLb.clN.dds.RData")
+atacseqkd_deseq2_list[["gene"]] <- fn_read_genefile("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/macs2/broad_peak/consensus/", "gene_gencode_human_gencode_out.sorted.chr.txt")
+atacseqkd_deseq2_list[["counts"]] <- fn_dds_counts(atacseqkd_deseq2_list$dds)
+atacseqkd_deseq2_list[["samples_selected"]] <- fn_sample_filter(atacseqkd_deseq2_list$counts, samplefilter = FALSE)
+atacseqkd_deseq2_list[["processed_counts"]] <- atacseqkd_deseq2_list[["samples_selected"]][,c(1:6)]
+atacseqkd_deseq2_list[["coldata"]] <- fn_make_coldata_dds(atacseqkd_deseq2_list$dds, samplefilter = FALSE)
+atacseqkd_deseq2_list[["consensus"]] <- data.frame(fread("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/macs2/broad_peak/consensus/consensus_peaks.mLb.clN.bed"))
+# check
+all(rownames(atacseqkd_deseq2_list$coldata) == colnames(atacseqkd_deseq2_list$processed_counts)) #should print TRUE
+
+# de analysis
+atacseqkd_deseq2_list[["dar_analysis"]] <- fn_deseq2(atacseqkd_deseq2_list$processed_counts, atacseqkd_deseq2_list$coldata, 0.05, 2)
+
+# get positions of dars
+atacseqkd_deseq2_list[["annotation"]] <- fn_consensus_gene_anno("atacseqkd", "deseq2", atacseqkd_deseq2_list$dar_analysis$de_analysis, atacseqkd_deseq2_list$consensus, atacseqkd_deseq2_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt", 0.05, 2)
+
+# Overlap between cramp1 and suz12 target intervals
+# Venn diagram
+list_atacseqkd_deseq2_de_shCRAMP1_shSUZ12_shControl <- list(shCRAMP1 = unique(atacseqkd_deseq2_list$dar_analysis$de_analysis$shCRAMP1_shControl$de$ensID_Gene), shSUZ12=unique(atacseqkd_deseq2_list$dar_analysis$de_analysis$shSUZ12_shControl$de$ensID_Gene))
+fn_plot_venn(list_atacseqkd_deseq2_de_shCRAMP1_shSUZ12_shControl, c("#0073C2FF", "#EFC000FF","#0073C2FF", "#EFC000FF"))
+
+list_atacseqkd_deseq2_up_shCRAMP1_shSUZ12_shControl <- list(shCRAMP1 = unique(atacseqkd_deseq2_list$dar_analysis$de_analysis$shCRAMP1_shControl$up$ensID_Gene), shSUZ12=unique(atacseqkd_deseq2_list$dar_analysis$de_analysis$shSUZ12_shControl$up$ensID_Gene))
+fn_plot_venn(list_atacseqkd_deseq2_up_shCRAMP1_shSUZ12_shControl, c("#0073C2FF", "#EFC000FF","#0073C2FF", "#EFC000FF"))
+
+plotPCA(atacseqkd_deseq2_list$dar_analysis$vstO, intgroup="sample", returnData=FALSE)
+
+atacseqkd_deseq2_list[["annotation"]] <- fn_consensus_gene_anno("atacseqkd", "deseq2", atacseqkd_deseq2_list$dar_analysis$de_analysis, atacseqkd_deseq2_list$consensus, atacseqkd_deseq2_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt", 0.05, 2)
+
 # diffbind
 diffbind_atacseqkd_samplesheet <- read.csv("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/diffbind_atac_seq_samplesheet.csv")
 atacseqkd_diffbind_list <- list()
@@ -463,10 +617,35 @@ atacseqkd_edger_list[["gene"]] <- fn_read_genefile("/mnt/home3/reid/av638/atacse
 
 atacseqkd_edger_list[["annotation"]] <- fn_nearest_gene_anno("atacseqkd", "edger", atacseqkd_edger_list$dar_analysis$dars, atacseqkd_edger_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt", 0.05, 2)
 
-atacseqkd_edger_list[["chipseeker"]] <- fn_run_chipseeker("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/macs2/broad_peak/", "atacseqkd", "TxDb.Hsapiens.UCSC.hg38.knownGene", "org.Hs.eg.db", "*.broadPeak")
+atacseqkd_edger_list[["chipseeker"]] <- fn_run_chipseeker("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/macs2/broad_peak/", "atacseqkd", TxDb.Hsapiens.UCSC.hg38.knownGene, "org.Hs.eg.db", "*.broadPeak")
   
 #  export bed files
 fn_export_bed("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", atacseqkd_edger_list$annotation, "all", "all", "txt")
+
+
+
+
+
+# Integration of omics data
+# for bins
+intergration_omics_list <- list()
+bin_cov_atacseq_path <- list.files(path="/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library", pattern = "*.txt_coverage.pe.bed", full.names = T)
+bin_cov_cutnrun_KO_path <- list.files(path="/mnt/home3/reid/av638/cutnrun/iva_lab_oct23/cutnrun_k27_ko/outfolder/bowtie2/mergedLibrary", pattern = "*.txt_coverage_se.bed", full.names = T)
+bin_cov_cutnrun_KD_path <- list.files(path="/mnt/home3/reid/av638/cutnrun/iva_lab_oct23/cutnrun_k27_kd/outfolder/bowtie2/mergedLibrary", pattern = "*.txt_coverage_se.bed", full.names = T)
+bin_cov_cutntag_path <- list.files(path="/mnt/home3/reid/av638/cutntag/iva_lab_oct23/outfolder/bowtie2/mergedLibrary", pattern = "*.txt_coverage_se.bed", full.names = T)
+bin_path_combined <- c(bin_cov_atacseq_path, bin_cov_cutnrun_KO_path, bin_cov_cutnrun_KD_path, bin_cov_cutntag_path)
+
+intergration_omics_list[["bin5kb"]] <- fn_integrate_omicsdata(bin_path_combined, "5kb", c(1:3), seq(4,175,7))
+intergration_omics_list[["bin10kb"]] <- fn_integrate_omicsdata(bin_path_combined, "10kb", c(1:3), seq(4,175,7))
+
+
+
+
+
+
+
+
+
 
 
 
