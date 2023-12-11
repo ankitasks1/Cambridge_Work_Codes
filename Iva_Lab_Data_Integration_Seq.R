@@ -490,7 +490,7 @@ fn_quantify_bedtools <- function(peaks_path, assaytype, bamfile, bedfile ,sites_
 }
 
 # quantify per feature in a given interval using featurecounts
-fn_quantify_featurecounts <- function(peaks_path, assaytype, bamfiles, sites_files, sites_column_to_rearrange, pairedend=FALSE, refgenome, merge_sites_files=FALSE){
+fn_quantify_featurecounts <- function(peaks_path, assaytype, bamfiles, sites_files, sites_type, sites_column_to_rearrange, pairedend=FALSE, refgenome, delim, merge_sites_files=FALSE){
   storelist <- list()
   bam_files <- list.files(peaks_path, pattern = bamfiles, full.names = TRUE)
   sites_files <- list.files(peaks_path, pattern = sites_files, full.names = TRUE)
@@ -500,12 +500,34 @@ fn_quantify_featurecounts <- function(peaks_path, assaytype, bamfiles, sites_fil
     message("reading the peak file and reaaranging to saf format...")
     sites <- data.frame(fread(i, header = F))[,sites_column_to_rearrange]
     colnames(sites) <- c("id1","id2", "chr", "start", "end", "strand")
-    sites["geneid"] <- paste0(sites$id1, "_",sites$id2)
+    sites["geneid"] <- paste0(sites$id1, delim ,sites$id2)
     saf_file <- sites[,c(7,3,4,5,6)]
     storelist[["saf"]][[basename(i)]] <- saf_file
     message("running featurecounts...")
-    storelist[["countmatrix"]][[basename(i)]] <- Rsubread::featureCounts(bam_files, annot.inbuilt = refgenome, annot.ext = saf_file, isGTFAnnotationFile = FALSE, countMultiMappingReads = FALSE,
+    storelist[[paste0(sites_type, "_","countmatrix")]][[basename(i)]] <- Rsubread::featureCounts(bam_files, annot.inbuilt = refgenome, annot.ext = saf_file, isGTFAnnotationFile = FALSE, countMultiMappingReads = FALSE,
                             isPairedEnd = pairedend, nthreads = 12) # annot.ext will overide annot.inbuilt if both provided but to be on safe side I supply refgenome
+  }
+  return(storelist)
+}
+
+# quantify for multiple feature using featurecounts
+fn_quantify_featurecounts_multifeature <- function(assay_bam_path, feature_path, assay, bam_extension, feature_list, columnstorearrange, ref, control,pe=FALSE, diff=FALSE){
+  storelist <- list()
+  for (i in names(feature_list)){
+    message(paste0("copying ",feature_list[[i]][2], " to ", assay_bam_path, "..."))
+    system(paste0("cp ", feature_path, feature_list[[i]][2], " ", assay_bam_path))
+    storelist[[i]] <- fn_quantify_featurecounts(assay_bam_path, assay, paste0("\\",bam_extension,"$"), paste0("\\",feature_list[[i]][1],"$"), i, columnstorearrange, pairedend=pe, ref, "%",merge_sites_files=FALSE)
+    storelist[[i]][["log_normalized_counts"]] <- log(data.frame(edgeR::cpm(storelist[[i]][[paste0(i, "_countmatrix")]][[feature_list[[i]][2]]][["counts"]])) + 1,2)
+    if (diff==TRUE){
+      for (j in colnames(storelist[[i]][["log_normalized_counts"]])){
+        if (j %notlike% control){
+          print(paste0("feature: ",i, ", sample: ",j))
+          message(paste0("subtracting ", control, " from ", j,  "..."))
+          storelist[[i]][["log_normalized_counts"]][paste0(gsub(bam_extension,"",j),"_",control)] <- storelist[[i]][["log_normalized_counts"]][j] - storelist[[i]][["log_normalized_counts"]][paste0(control,bam_extension)]
+        }
+      }
+    }else{print("Not to calculate differences")}
+    storelist[[i]][["log_normalized_counts"]]["id"] <- rownames(storelist[[i]][["log_normalized_counts"]])
   }
   return(storelist)
 }
@@ -532,7 +554,7 @@ fn_quantify_bams <- function(peaks_path, assaytype, bamfiles){
   return(storelist)
 }
 
-
+# further process the featurecounts quantified matrix
 fn_summedreads_per_feature <- function(fearturecountmatrix, bamcountsreads, labels){
   storelist <- list()
   featurelist <- list()
@@ -561,15 +583,30 @@ fn_summedreads_per_feature <- function(fearturecountmatrix, bamcountsreads, labe
 
 
 # aggregate value per feature
-fn_aggregate_feature <- function(annomatrix, column, valuecolumn, operation){
+fn_aggregate_feature <- function(annomatrix, columnstoaggregate, aggreagtebycolumn, operation){
   storelist <- list()
-  storelist[[operation]] <- aggregate(annomatrix[,valuecolumn],by=list(annomatrix[[column]]), operation)
+  storelist[["aggregated"]] <- stats::aggregate(annomatrix[,columnstoaggregate], by=list(annomatrix[[aggreagtebycolumn]]), operation)
+  return(storelist)
+}
+# integrate multiple omics data on featurecounts
+fn_integrate_featurecounts <- function(inputlist, sharedcolumn){
+  storelist <- list()
+  message("initializing the first dataframe...")
+  df <- inputlist[[1]]
+  message("merging datasets...")
+  for (i in 2:length(inputlist)) {
+    print(i)
+    message(paste0("merging data... ", i))
+    df <- merge(df, inputlist[[i]], by = sharedcolumn, all.x = TRUE, all.y = TRUE) 
+  }
+  rownames(df) <- df[[sharedcolumn]]
+  df <- df[,-1]
+  storelist[["df"]] <- df
   return(storelist)
 }
 
-
-# intergate multiple omics data
-fn_integrate_omicsdata <- function(omics_data_path_lists, binsize, columns_pos, columns_samples){
+# integrate multiple omics data on bedtools coverage output
+fn_integrate_bedtools <- function(omics_data_path_lists, binsize, columns_pos, columns_samples){
   storelist <- list()
   omics_data_path_bin <- omics_data_path_lists[grepl(binsize, omics_data_path_lists)]
   bin_list <- list()
@@ -594,6 +631,29 @@ fn_integrate_omicsdata <- function(omics_data_path_lists, binsize, columns_pos, 
   storelist[["cpm_log"]] <- bin_df_CPM_log
   return(storelist)
 } 
+
+# make a notlike function
+`%notlike%` <- Negate('%like%')
+
+#### common_files among all datasets
+# bins5kb
+system("bedtools makewindows -g hg38.chrom.sizes -w 5000 | awk '{print $1\"\\t\"$2\"\\t\"$3\"\\t\"\"bin_\"NR\"\\t\"$1\"%\"$2\"%\"$3\"\\t\"\".\"}' > hg38_5kb.txt")
+# bins10kb
+system("bedtools makewindows -g hg38.chrom.sizes -w 10000 | awk '{print $1\"\\t\"$2\"\\t\"$3\"\\t\"\"bin_\"NR\"\\t\"$1\"%\"$2\"%\"$3\"\\t\"\".\"}' > hg38_10kb.txt")
+
+# gene_extended
+integration_features_list <- list()
+integration_features_list[["gene"]] <- fn_read_genefile("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/integration/", "gene_gencode_human_gencode_out.sorted.chr.txt")
+integration_features_list[["gene_ext"]] <- makeGRangesFromDataFrame(integration_features_list[["gene"]], keep.extra.columns=TRUE)
+# since it was complicated to extend only the one side of gene coordinates I extended both sides
+integration_features_list$gene_ext <- data.frame(GenomicRanges::shift(integration_features_list$gene_ext, 1500))
+write.table(integration_features_list$gene_ext[,c(1,2,3,7,8,5)], paste0("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/integration/","gene_gencode_human_gencode_out.sorted.chr_1.5kb.txt"), sep="\t", quote=F, append = F, row.names = F, col.names = F)
+
+# promoter
+integration_features_list[["promoter"]] <- data.frame(GenomicRanges::promoters(makeGRangesFromDataFrame(integration_features_list[["gene"]], keep.extra.columns=TRUE), upstream=2000, downstream=200))
+# filter chrM
+integration_features_list$promoter <- integration_features_list$promoter[which(integration_features_list$promoter$seqnames != "chrM"),]
+write.table(integration_features_list$promoter[,c(1,2,3,7,8,5)], paste0("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/integration/","gene_gencodev41_promoter.txt"), sep="\t", quote=F, append = F, row.names = F, col.names = F)
 
 
 ################################################
@@ -666,6 +726,13 @@ list_atacseqkd_deseq2_up_shCRAMP1_shSUZ12_shControl <- list(shCRAMP1 = unique(at
 fn_plot_venn(list_atacseqkd_deseq2_up_shCRAMP1_shSUZ12_shControl, c("#0073C2FF", "#EFC000FF","#0073C2FF", "#EFC000FF"))
 
 plotPCA(atacseqkd_deseq2_list$dar_analysis$vstO, intgroup="sample", returnData=FALSE)
+
+
+atacseqkd_deseq2_list[["aggregate_pergene"]][["shCRAMP1_shControl"]][["nearest"]][["de"]] <- fn_aggregate_feature(atacseqkd_deseq2_list$annotation$shCRAMP1_shControl$nearest$de, c(3), "ens_gene", mean)
+atacseqkd_deseq2_list[["aggregate_pergene"]][["shSUZ12_shControl"]][["nearest"]][["de"]] <- fn_aggregate_feature(atacseqkd_deseq2_list$annotation$shSUZ12_shControl$nearest$de, c(3), "ens_gene", mean)
+
+colnames(atacseqkd_deseq2_list$aggregate_pergene$shCRAMP1_shControl$nearest$de$aggregated) <- c("ensID_Gene", "mean_log2FC")
+colnames(atacseqkd_deseq2_list$aggregate_pergene$shSUZ12_shControl$nearest$de$aggregated) <- c("ensID_Gene", "mean_log2FC")
 
 # diffbind
 diffbind_atacseqkd_samplesheet <- read.csv("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/diffbind_atac_seq_samplesheet.csv")
@@ -752,6 +819,18 @@ cutnrunko_deseq2_list[["annotation"]] <- fn_consensus_gene_anno("cutnrunko", "de
 
 plotPCA(cutnrunko_deseq2_list$dar_analysis$vstO, intgroup="sample", returnData=FALSE)
 
+cutnrunko_deseq2_list[["aggregate_pergene"]][["KO_WT"]][["nearest"]][["de"]] <- fn_aggregate_feature(cutnrunko_deseq2_list$annotation$KO_WT$nearest$de, c(3), "ens_gene", mean)
+
+colnames(cutnrunko_deseq2_list$aggregate_pergene$KO_WT$nearest$de$aggregated) <- c("ensID_Gene", "mean_log2FC")
+
+
+cutnrunko_quantify_list <- list()
+
+# quantify over various features
+cutnrunko_quantify_list[["featurecounts"]][["featureslist"]]=list(gene_ext=c(".chr_1.5kb.txt", "gene_gencode_human_gencode_out.sorted.chr_1.5kb.txt"), bins5kb=c("hg38_5kb.txt", "hg38_5kb.txt"), bins10kb=c("hg38_10kb.txt", "hg38_10kb.txt"), promoter=c("_gencodev41_promoter.txt", "gene_gencodev41_promoter.txt"))
+
+cutnrunko_quantify_list[["featurecounts"]][["featuresmatrix"]] <- fn_quantify_featurecounts_multifeature("/mnt/home3/reid/av638/cutnrun/iva_lab_oct23/cutnrun_k27_ko/outfolder/bowtie2/mergedLibrary/", "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/integration/", "cutnrunko", ".mLb.clN.sorted.bam", cutnrunko_quantify_list$featurecounts$featureslist, c(4,5,1:3,6), "hg38", "IgG",pe=FALSE, diff=FALSE)
+
 ################################################
 ###         CUT&RUN data: Knockdown          ###
 ################################################
@@ -778,15 +857,31 @@ cutnrunkd_deseq2_list[["annotation"]] <- fn_consensus_gene_count_anno("cutnrunko
 cutnrunkd_deseq2_list[["vst"]] <- DESeq2::vst(cutnrunkd_deseq2_list$dds)
 plotPCA(cutnrunkd_deseq2_list$vst, intgroup="sample", returnData=FALSE)
 
+cutnrunkd_deseq2_list[["aggregate_pergene"]][["nearest"]] <- fn_aggregate_feature(cutnrunkd_deseq2_list$annotation$nearest, c(2:4), "ens_gene", sum)
+
+rownames(cutnrunkd_deseq2_list$aggregate_pergene$nearest$aggregated) <- cutnrunkd_deseq2_list$aggregate_pergene$nearest$aggregated$Group.1
+cutnrunkd_deseq2_list$aggregate_pergene$nearest$aggregated <- cutnrunkd_deseq2_list$aggregate_pergene$nearest$aggregated[,-1]
+cutnrunkd_deseq2_list[["aggregate_pergene"]][["nearest"]][["log_sum_counts"]] <- log(data.frame(cutnrunkd_deseq2_list$aggregate_pergene$nearest$aggregated) + 1,2)
+
+
+# subtract sample to shControl
+for (i in colnames(cutnrunkd_deseq2_list$aggregate_pergene$nearest$log_sum_counts)){
+  if (i %notlike% "shControl"){
+    print(i)
+    cutnrunkd_deseq2_list$aggregate_pergene$nearest$log_sum_counts[paste0(gsub("_","",gsub("H3K27me3","",i)),"_","shControl")] <- cutnrunkd_deseq2_list$aggregate_pergene$nearest$log_sum_counts[i] - cutnrunkd_deseq2_list$aggregate_pergene$nearest$log_sum_counts["shControl_H3K27me3"]
+  }
+}
+cutnrunkd_deseq2_list$aggregate_pergene$nearest$log_sum_counts["ensID_Gene"] <- rownames(cutnrunkd_deseq2_list$aggregate_pergene$nearest$log_sum_counts)
+
 ################################################
-###         CUT&TAG data: Wildtype          ###
+###         CUT&TAG data: Wildtype  SE       ###
 ################################################
 cutntagwt_quantify_list <- list()
-cutntagwt_quantify_list[["featurecounts"]] <- fn_quantify_featurecounts("/mnt/home3/reid/av638/cutntag/iva_lab_oct23/outfolder/bowtie2/mergedLibrary", "cutntagwt","\\.bam$", "\\_peaks_id.bed$", c(12,4,1:3,7), pairedend=FALSE, "hg38", merge_sites_files=FALSE)
+cutntagwt_quantify_list[["featurecounts"]] <- fn_quantify_featurecounts("/mnt/home3/reid/av638/cutntag/iva_lab_oct23/outfolder/bowtie2/mergedLibrary", "cutntagwt","\\.bam$", "\\_peaks_id.bed$","histone_marks", c(12,4,1:3,7), pairedend=FALSE, "hg38", "_",merge_sites_files=FALSE)
 
 cutntagwt_quantify_list[["bams"]] <- fn_quantify_bams("/mnt/home3/reid/av638/cutntag/iva_lab_oct23/outfolder/bowtie2/mergedLibrary", "cutntagwt","\\.bam$")
 cutntagwt_labelpath = "/mnt/home3/reid/av638/cutntag/iva_lab_oct23/outfolder/bowtie2/mergedLibrary/histone_marks_label.txt"
-cutntagwt_quantify_list[["summed"]] <- fn_summedreads_per_feature(cutntagwt_quantify_list$featurecounts$countmatrix, cutntagwt_quantify_list$bams$total_reads, cutntagwt_labelpath)
+cutntagwt_quantify_list[["summed"]] <- fn_summedreads_per_feature(cutntagwt_quantify_list$featurecounts$histone_marks_countmatrix, cutntagwt_quantify_list$bams$total_reads, cutntagwt_labelpath)
 
 cutntagwt_quantify_list$summed$all_features_ratio$sample <- gsub(".bam","",gsub(".mLb.clN.sorted.bam", "", cutntagwt_quantify_list$summed$all_features_ratio$sample))
 cutntagwt_quantify_list$summed$all_features_ratio$sample <- factor(cutntagwt_quantify_list$summed$all_features_ratio$sample, levels = c("IgG","ENCFF508LLH","H1_4","H3K27me3","panH1"))
@@ -809,9 +904,63 @@ gridExtra::grid.arrange(cutntagwt_quantify_list$summed$plot$ENCFF508LLH, cutntag
 
 #save as  cutntagwt_combined_plot.pdf at pdf 40X23 portrait
 
+# assign genes
+cutntagwt_quantify_list[["gene"]] <- fn_read_genefile("/mnt/home3/reid/av638/cutntag/iva_lab_oct23/outfolder/bowtie2/mergedLibrary/", "gene_gencode_human_gencode_out.sorted.chr.txt")
 
+# quantify over various features
+cutntagwt_quantify_list[["featurecounts"]][["featureslist"]]=list(gene_ext=c(".chr_1.5kb.txt", "gene_gencode_human_gencode_out.sorted.chr_1.5kb.txt"), bins5kb=c("hg38_5kb.txt", "hg38_5kb.txt"), bins10kb=c("hg38_10kb.txt", "hg38_10kb.txt"), promoter=c("_gencodev41_promoter.txt", "gene_gencodev41_promoter.txt"))
+
+cutntagwt_quantify_list[["featurecounts"]][["featuresmatrix"]] <- fn_quantify_featurecounts_multifeature("/mnt/home3/reid/av638/cutntag/iva_lab_oct23/outfolder/bowtie2/mergedLibrary/", "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/integration/", "cutntagwt", ".mLb.clN.sorted.bam", cutntagwt_quantify_list$featurecounts$featureslist, c(4,5,1:3,6), "hg38", "IgG",pe=FALSE, diff=TRUE)
+
+# for check if two df are exactly same and to check if fn_quantify_featurecounts_multifeature is created properly and doing the same thing as individual steps look at Check Notes
+
+################################################
+###         CUT&TAG data: wt and ko          ###
+################################################
+# ls *.fastq.gz -1 |  grep R1 | sort -k1,1 | awk -F'_' '{print $2"\t"$1"_"$2"_"$3"_"$4"_""R1""_"$6"\t"$1"_"$2"_"$3"_"$4"_""R2""_"$6}' > fastq_info.txt
+# add header vim fastq_info.txt
+# samplesheet prep for nextflow
+# Rachael told me control for the FLAG labelled samples is "FLAG_H14_old".
+# The one labelled as FLAG_old is actually the FLAG_H1.4_old sample. So I changed it
+cutntagwko_quantify_list <- list()
+cutntagwko_quantify_list[["nextflow"]][["info"]] <- data.frame(fread("/mnt/home3/reid/av638/cutntag/iva_lab_dec23/info.txt", header = T))
+cutntagwko_quantify_list[["nextflow"]][["sheet"]] <- data.frame(ID=rep(c(cutntagwko_quantify_list$nextflow$info$ID),2),
+                replicate=rep(1,length(cutntagwko_quantify_list$nextflow$info$ID) * 2),
+                group=gsub("-","_",rep(c(cutntagwko_quantify_list$nextflow$info$Sample),2)),
+                control=rep(c("shControl_IgG","shControl_IgG","","shCRAMP1_IgG","shCRAMP1_IgG","","shSUZ12_IgG","shSUZ12_IgG","","WT_IgG","WT_IgG","WT_IgG","WT_IgG","WT_IgG","","FLAG_H14_old","FLAG_H14_old","FLAG_H14_old","FLAG_H14_old","FLAG_H14_old","",""),2)
+)
+
+cutntagwko_quantify_list[["nextflow"]][["fastqs"]] <- data.frame(fread("/mnt/home3/reid/av638/cutntag/iva_lab_dec23/fastq_info.txt", header = T))
+cutntagwko_quantify_list[["nextflow"]][["samplesheet"]] <- merge(cutntagwko_quantify_list$nextflow$sheet, cutntagwko_quantify_list$nextflow$fastqs, by="ID")
+cutntagwko_quantify_list$nextflow$samplesheet <- cutntagwko_quantify_list$nextflow$samplesheet %>% dplyr::distinct()
+cutntagwko_quantify_list$nextflow$samplesheet <- cutntagwko_quantify_list$nextflow$samplesheet[order(cutntagwko_quantify_list$nextflow$samplesheet$group),][,c(3,2,5,6,4)]
+write.table(cutntagwko_quantify_list$nextflow$samplesheet, "/mnt/home3/reid/av638/cutntag/iva_lab_dec23/samplesheet.csv", sep=",", col.names = T, row.names = F, quote = F, append = F)
 
 # Integration of omics data
+# for gene
+data_integration_list <- list()
+data_integration_list[["ensID_gene"]][["list"]] <- 
+  list(rnaseqkd_list$deseq2$de_analysis$shC1_c1509$de %>% select(r_shC1=2, ensID_Gene=7),
+       rnaseqkd_list$deseq2$de_analysis$shS_c1509$de %>% select(r_shS=2, ensID_Gene=7),
+       atacseqkd_deseq2_list$aggregate_pergene$shCRAMP1_shControl$nearest$de$aggregated %>% select(a_shCRAMP1=2, ensID_Gene=1),
+       atacseqkd_deseq2_list$aggregate_pergene$shSUZ12_shControl$nearest$de$aggregated %>% select(a_shSUZ12=2, ensID_Gene=1),
+       cutnrunko_deseq2_list$aggregate_pergene$KO_WT$nearest$de$aggregated %>% select(cko_KO=2, ensID_Gene=1),
+       cutnrunkd_deseq2_list$aggregate_pergene$nearest$log_sum_counts[,c(4:6)],
+       cutntagwt_quantify_list$featurecounts$gene_ext$log_normalized_counts[,c(7:10)])
+
+data_integration_list[["ensID_gene"]][["merged"]] <- fn_integrate_featurecounts(data_integration_list$ensID_gene$list, "ensID_Gene")
+
+# Some predictable
+col_fun = circlize::colorRamp2(c(-10, 0, 10), c("blue", "white", "red"))
+col_fun2 = circlize::colorRamp2(c(-2, 0, 2), c("blue", "white", "red"))
+data_integration_list$ensID_gene$merged[["somepredictable"]] <- data_integration_list$ensID_gene$merged$df[complete.cases(data_integration_list$ensID_gene$merged$df[, c("r_shC1")]), ]
+data_integration_list$ensID_gene$merged[["Heatmap"]][["somepredictable"]][["mat1"]] <- ComplexHeatmap::Heatmap(as.matrix(data_integration_list$ensID_gene$merged$somepredictable[,c(1:5)]), na_col = "yellow", row_names_gp = gpar(fontsize = 5), cluster_columns = FALSE, col = col_fun)
+data_integration_list$ensID_gene$merged[["Heatmap"]][["somepredictable"]][["mat2"]] <- ComplexHeatmap::Heatmap(as.matrix(data_integration_list$ensID_gene$merged$somepredictable[,c(6:7)]), na_col = "yellow", row_names_gp = gpar(fontsize = 5), cluster_columns = FALSE, col = col_fun2)
+data_integration_list$ensID_gene$merged[["Heatmap"]][["somepredictable"]][["mat3"]] <- ComplexHeatmap::Heatmap(as.matrix(data_integration_list$ensID_gene$merged$somepredictable[,c(8:10)]), na_col = "yellow", row_names_gp = gpar(fontsize = 5), cluster_columns = FALSE, col = col_fun)
+
+data_integration_list$ensID_gene$merged[["Heatmap"]][["somepredictable"]][["mat1"]]+ data_integration_list$ensID_gene$merged[["Heatmap"]][["somepredictable"]][["mat2"]] + data_integration_list$ensID_gene$merged[["Heatmap"]][["somepredictable"]][["mat3"]]
+
+#complex_heatmap_data_integration_list$ensID_gene$merged$df_somepredictable_ch.pdf
 # for bins
 intergration_omics_list <- list()
 bin_cov_atacseq_path <- list.files(path="/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library", pattern = "*.txt_coverage.pe.bed", full.names = T)
@@ -820,8 +969,8 @@ bin_cov_cutnrun_KD_path <- list.files(path="/mnt/home3/reid/av638/cutnrun/iva_la
 bin_cov_cutntag_path <- list.files(path="/mnt/home3/reid/av638/cutntag/iva_lab_oct23/outfolder/bowtie2/mergedLibrary", pattern = "*.txt_coverage_se.bed", full.names = T)
 bin_path_combined <- c(bin_cov_atacseq_path, bin_cov_cutnrun_KO_path, bin_cov_cutnrun_KD_path, bin_cov_cutntag_path)
 
-intergration_omics_list[["bin5kb"]] <- fn_integrate_omicsdata(bin_path_combined, "5kb", c(1:3), seq(4,175,7))
-intergration_omics_list[["bin10kb"]] <- fn_integrate_omicsdata(bin_path_combined, "10kb", c(1:3), seq(4,175,7))
+intergration_omics_list[["bin5kb"]] <- fn_integrate_bedtools(bin_path_combined, "5kb", c(1:3), seq(4,175,7))
+intergration_omics_list[["bin10kb"]] <- fn_integrate_bedtools(bin_path_combined, "10kb", c(1:3), seq(4,175,7))
 
 
 
@@ -830,3 +979,31 @@ intergration_omics_list[["bin10kb"]] <- fn_integrate_omicsdata(bin_path_combined
 
 ################################################ END OF ANALYSIS ###########################################################
 
+#  Check Notes:
+# > if (identical(cutntagwt_quantify_list$featurecounts$gene_ext$gene_ext_countmatrix$gene_gencode_human_gencode_out.sorted.chr_1.5kb.txt$counts[,c(2:5)], cutntagwt_quantify_list$featurecounts$featuresmatrix$gene_ext$gene_ext_countmatrix$gene_gencode_human_gencode_out.sorted.chr_1.5kb.txt$counts)) {
+#   +     print("Data frames are exactly the same.")
+#   + } else {
+#     +     print("Data frames are different.")
+#     + }
+# [1] "Data frames are exactly the same."
+# > 
+#   > if (identical(cutntagwt_quantify_list$featurecounts$promoter$promoter_countmatrix$gene_gencodev41_promoter.txt$counts[,c(2:5)], cutntagwt_quantify_list$featurecounts$featuresmatrix$promoter$promoter_countmatrix$gene_gencodev41_promoter.txt$counts)) {
+#     +     print("Data frames are exactly the same.")
+#     + } else {
+#       +     print("Data frames are different.")
+#       + }
+# [1] "Data frames are exactly the same."
+# > 
+#   > if (identical(cutntagwt_quantify_list$featurecounts$bins5kb$bins5kb_countmatrix$hg38_5kb.txt$counts[,c(2:5)], cutntagwt_quantify_list$featurecounts$featuresmatrix$bins5kb$bins5kb_countmatrix$hg38_5kb.txt$counts)) {
+#     +     print("Data frames are exactly the same.")
+#     + } else {
+#       +     print("Data frames are different.")
+#       + }
+# [1] "Data frames are exactly the same."
+# > 
+#   > if (identical(cutntagwt_quantify_list$featurecounts$bins10kb$bins10kb_countmatrix$hg38_10kb.txt$counts[,c(2:5)], cutntagwt_quantify_list$featurecounts$featuresmatrix$bins10kb$bins10kb_countmatrix$hg38_10kb.txt$counts)) {
+#     +     print("Data frames are exactly the same.")
+#     + } else {
+#       +     print("Data frames are different.")
+#       + }
+# [1] "Data frames are exactly the same."
