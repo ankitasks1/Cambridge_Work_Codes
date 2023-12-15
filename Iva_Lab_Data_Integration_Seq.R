@@ -192,25 +192,6 @@ fn_edger_de <- function(lmfit, design, fdr, fc){
   return(storelist)
 }
 
-fn_diffbind_edger_de <- function(lmfit, design, fdr, fc){  
-  storelist <- list()
-  delist <- list()
-  message("obtaining de results...")
-  for (i in c(2,3)){
-    lrt <- glmLRT(lmfit, coef=i)
-    delist[["class"]] <- topTags(lrt, n = Inf, sort.by = "PValue", p.value = 1, adjust.method="BH")
-    delist[["all"]] <- delist$class$table
-    comparison <- unique(delist$class$comparison)
-    delist$all["coordinates"] <- rownames(delist$all)
-    delist$all <- data.frame(splitstackshape::cSplit(delist$all, "coordinates", "%"))
-    delist$all <- delist$all[,c((dim(delist$all)[2] -2): (dim(delist$all)[2]), 1:(dim(delist$all)[2]-3))]
-    delist[["de"]] <- delist$all %>% dplyr::filter(FDR < fdr & (logFC > log(fc,2) | logFC < -log(fc,2)))
-    delist[["up"]] <- delist$all %>% dplyr::filter(FDR < fdr & (logFC > log(fc,2)))
-    delist[["down"]] <- delist$all %>% dplyr::filter(FDR < fdr & (logFC < -log(fc,2)))
-    storelist[["dars"]][[paste0("coef_", comparison)]] <- delist
-  }
-  return(storelist)
-}
 
 # diffbind based analysis
 fn_diffbind_prep <- function(samplesheet){
@@ -232,16 +213,21 @@ fn_diffbind_count <- function(obj, summit){
   return(diffblist)
 }
 
-fn_diffbind_de <- function(obj, fdr, fc, method){
+fn_diffbind_norm <- function(obj){
   diffblist <- list()
   message("Performing normalisation...")
   diffblist[["norm"]] <- dba.normalize(obj, method=DBA_ALL_METHODS)
   message("Performing Diffbind analysis...")
   message("Performing Contrasts...")
   diffblist$norm <- dba.contrast(diffblist$norm, minMembers = 2,categories=DBA_CONDITION)
-  contrasts <- dba.show(diffblist$norm, bContrasts=TRUE)
   diffblist$norm <- dba.analyze(diffblist$norm, method=DBA_ALL_METHODS)
+  return(diffblist)
+}
+
+fn_diffbind_de <- function(normobj, fdr, fc, method){
   contrastlist <- list()
+  diffblist <- list()
+  contrasts <- dba.show(normobj, bContrasts=TRUE)
   for (i in as.numeric(rownames(contrasts))){
     print(paste0("performing analysis for contrast",i, " i.e. ", paste0(as.character(contrasts[i,][,c(4,2)]), collapse = "_")))
     storelist <- list()
@@ -249,28 +235,30 @@ fn_diffbind_de <- function(obj, fdr, fc, method){
     # Extracting results, contrast 1 means , th means threshold for FDR, which if 1 give all sites 
     if(method=="edgeR"){
       storelist <- list()
-      storelist[["all"]] <- data.frame(dba.report(diffblist$norm, method=DBA_EDGER, contrast = i, th=1))
+      storelist[["all"]] <- data.frame(dba.report(normobj, method=DBA_EDGER, contrast = i, th=1))
+      storelist$all["feature_id"] <- unique(do.call(paste, c(storelist$all[,c(1:3)], sep="%")))
       storelist[["de"]] <- storelist$all %>% dplyr::filter(FDR < fdr & (Fold > log(fc,2) | Fold < -log(fc,2)))
       storelist[["up"]] <- storelist$all %>% dplyr::filter(FDR < fdr & (Fold > log(fc,2)))
       storelist[["down"]] <- storelist$all %>% dplyr::filter(FDR < fdr & (Fold < -log(fc,2)))
       message("Performing PCA plot...")
-      storelist[["pca"]] <- dba.plotPCA(diffblist$norm, contrast=i, method=DBA_EDGER, attributes=DBA_FACTOR, label=DBA_ID)
+      storelist[["pca"]] <- dba.plotPCA(normobj, contrast=i, method=DBA_EDGER, attributes=DBA_FACTOR, label=DBA_ID)
       message("Performing venn diagran...")
-      storelist[["venn"]] <- dba.plotVenn(diffblist$norm, contrast=i, method=DBA_ALL_METHODS)
+      storelist[["venn"]] <- dba.plotVenn(normobj, contrast=i, method=DBA_ALL_METHODS)
       message("Performing MA-plot...")
-      storelist[["ma_plot"]] <- dba.plotMA(diffblist$norm, method=DBA_EDGER)
+      storelist[["ma_plot"]] <- dba.plotMA(normobj, method=DBA_EDGER)
     }else if(method=="deseq2"){
       storelist <- list()
-      storelist[["all"]] <- data.frame(dba.report(diffblist$norm, method=DBA_DESEQ2, contrast = i, th=1))
+      storelist[["all"]] <- data.frame(dba.report(normobj, method=DBA_DESEQ2, contrast = i, th=1))
+      storelist$all["feature_id"] <- unique(do.call(paste, c(storelist$all[,c(1:3)], sep="%")))
       storelist[["de"]] <- storelist$all %>% dplyr::filter(FDR < fdr & (Fold > log(fc,2) | Fold < -log(fc,2)))
       storelist[["up"]] <- storelist$all %>% dplyr::filter(FDR < fdr & (Fold > log(fc,2)))
       storelist[["down"]] <- storelist$all %>% dplyr::filter(FDR < fdr & (Fold < -log(fc,2)))
       message("Performing PCA plot...")
-      storelist[["pca"]] <- dba.plotPCA(diffblist$norm, contrast=i, method=DBA_DESEQ2, attributes=DBA_FACTOR, label=DBA_ID)
+      storelist[["pca"]] <- dba.plotPCA(normobj, contrast=i, method=DBA_DESEQ2, attributes=DBA_FACTOR, label=DBA_ID)
       message("Performing venn diagran...")
-      storelist[["venn"]] <- dba.plotVenn(diffblist$norm, contrast=i, method=DBA_ALL_METHODS)
+      storelist[["venn"]] <- dba.plotVenn(normobj, contrast=i, method=DBA_ALL_METHODS)
       message("Performing MA-plot...")
-      storelist[["ma_plot"]] <- dba.plotMA(diffblist$norm, method=DBA_DESEQ2)
+      storelist[["ma_plot"]] <- dba.plotMA(normobj, method=DBA_DESEQ2)
     }
     contrastlist[[paste0("contrast_",paste0(as.character(contrasts[i,][,c(4,2)]), collapse = "_"))]] <- storelist
   }
@@ -309,9 +297,7 @@ fn_limma_de <- function(lmfit, contrasts, fdr, fc){
   delist <- list()
   for (cont in colnames(contrasts)){
     delist[["all"]] <- topTable(storelist$fit2, number=Inf,coef=cont, adjust="BH")
-    delist$all["coordinates"] <- rownames(delist$all)
-    delist$all <- data.frame(splitstackshape::cSplit(delist$all, "coordinates", "%"))
-    delist$all <- delist$all[,c((dim(delist$all)[2] -2): (dim(delist$all)[2]), 1:(dim(delist$all)[2]-3))]
+    delist$all["feature_id"] <- rownames(delist$all)
     delist[["de"]] <- delist$all %>% dplyr::filter(adj.P.Val < fdr & (logFC > log(fc,2) | logFC < -log(fc,2)))
     delist[["up"]] <- delist$all %>% dplyr::filter(adj.P.Val < fdr & (logFC > log(fc,2)))
     delist[["down"]] <- delist$all %>% dplyr::filter(adj.P.Val < fdr & (logFC < -log(fc,2)))
@@ -320,45 +306,8 @@ fn_limma_de <- function(lmfit, contrasts, fdr, fc){
   return(storelist)
 }
 
-fn_deseq2_diffbind_nearest_gene_anno <- function(assaytype, software="deseq2_diffbind", contrasts, genefile, path, outformat, fdr, fc){
-  contrastlist <- list()
-  for (i in names(contrasts)){
-    print(i)
-    all_df <- data.frame(contrasts[[i]][["all"]])
-    all_df["coordinates"] <- rownames(all_df)
-    all_df <- data.frame(splitstackshape::cSplit(all_df, "coordinates", "%"))
-    all_df <- all_df[,c((dim(all_df)[2] -2): (dim(all_df)[2]), 1:(dim(all_df)[2]-3))]
-    message("writing all data...")
-    write.table(all_df, paste0(path,"/",assaytype, "_",software,"_",i,"_","all.",outformat), sep="\t", quote = F, append = F, row.names = F, col.names = F)
-    write.table(genefile, paste0(path,"/","gene_gencode_v41_out.",outformat), sep="\t", quote = F, append = F, row.names = F, col.names = F)
-    message("sorting...")
-    system(paste0("sort -k1,1 -k2,2n ", paste0(path,"/",assaytype, "_",software,"_",i,"_","all.",outformat),  " | grep chr > ", paste0(path,"/",assaytype, "_",software,"_",i,"_","all_sorted.",outformat)))
-    message("annotation to genes ...")
-    all_anno <- data.frame(fread(cmd=paste0("bedtools closest -a ", paste0(path,"/",assaytype, "_",software,"_",i,"_","all_sorted.",outformat), " -b ", paste0(path,"/","gene_gencode_v41_out.",outformat), " -d")))
-    colnames(all_anno) <- c(colnames(all_df), "gene_chr", "gene_start", "gene_end", "gene_strand", "gene_type", "ensID", "gene", "ens_gene","Distance")
-    storelist <- list()
-    storelist[["all"]][["all"]] <- all_anno
-    message("getting peaks nearest distance to genes...")
-    nearest_distance = 5000
-    all_anno_nearest <- all_anno %>% dplyr::filter(Distance < nearest_distance )
-    storelist[["nearest"]][["all"]] <- all_anno_nearest
-    if (software == "deseq2_diffbind") {
-      message(paste0("package used: ", software))
-      storelist[["nearest"]][["de"]] <- all_anno_nearest %>% dplyr::filter(padj < fdr & (log2FoldChange > log(fc,2) | log2FoldChange < -log(fc,2))) 
-      storelist[["nearest"]][["up"]] <- all_anno_nearest %>% dplyr::filter(padj < fdr & (log2FoldChange > log(fc,2)))
-      storelist[["nearest"]][["down"]] <- all_anno_nearest %>% dplyr::filter(padj < fdr & (log2FoldChange < -log(fc,2)))
-      storelist[["all"]][["de"]] <- all_anno %>% dplyr::filter(padj < fdr & (log2FoldChange > log(fc,2) | log2FoldChange < -log(fc,2))) 
-      storelist[["all"]][["up"]] <- all_anno %>% dplyr::filter(padj < fdr & (log2FoldChange > log(fc,2)))
-      storelist[["all"]][["down"]] <- all_anno %>% dplyr::filter(padj < fdr & (log2FoldChange < -log(fc,2)))
-      contrastlist[[i]] <- storelist
-    }
-  }
-  return(contrastlist)
-}
-
-
 # annotation to genes and nearest distance filter for all packages
-fn_nearest_gene_anno <- function(assaytype, software, contrasts, genefile, path, outformat, fdr, fc){
+fn_diffbind_gene_anno <- function(assaytype, software, contrasts, genefile, path, outformat, fdr, fc){
   contrastlist <- list()
   for (i in names(contrasts)){
     print(i)
@@ -386,7 +335,36 @@ fn_nearest_gene_anno <- function(assaytype, software, contrasts, genefile, path,
       storelist[["all"]][["up"]] <- all_anno %>% dplyr::filter(FDR < fdr & (Fold > log(fc,2)))
       storelist[["all"]][["down"]] <- all_anno %>% dplyr::filter(FDR < fdr & (Fold < -log(fc,2)))
       contrastlist[[i]] <- storelist
-    }else if (software == "limma") {
+    }
+  }
+  return(contrastlist)
+}
+
+fn_diffbind_and_packages_gene_anno <- function(assaytype, software, contrasts, genefile, path, outformat, fdr, fc){
+  contrastlist <- list()
+  for (i in names(contrasts)){
+    print(i)
+    all_df <- data.frame(contrasts[[i]][["all"]])
+    message("adding coordinates...")
+    all_df["coordinates"] <- rownames(all_df)
+    all_df <- data.frame(splitstackshape::cSplit(all_df, "coordinates", "%"))
+    all_df <- all_df[,c((dim(all_df)[2] -2): (dim(all_df)[2]), 1:(dim(all_df)[2]-3))]
+    
+    message("writing all data...")
+    write.table(all_df, paste0(path,"/",assaytype, "_",software,"_",i,"_","all.",outformat), sep="\t", quote = F, append = F, row.names = F, col.names = F)
+    write.table(genefile, paste0(path,"/","gene_gencode_v41_out.",outformat), sep="\t", quote = F, append = F, row.names = F, col.names = F)
+    message("sorting...")
+    system(paste0("sort -k1,1 -k2,2n ", paste0(path,"/",assaytype, "_",software,"_",i,"_","all.",outformat),  " | grep chr > ", paste0(path,"/",assaytype, "_",software,"_",i,"_","all_sorted.",outformat)))
+    message("annotation to genes ...")
+    all_anno <- data.frame(fread(cmd=paste0("bedtools closest -a ", paste0(path,"/",assaytype, "_",software,"_",i,"_","all_sorted.",outformat), " -b ", paste0(path,"/","gene_gencode_v41_out.",outformat), " -d")))
+    colnames(all_anno) <- c(colnames(all_df), "gene_chr", "gene_start", "gene_end", "gene_strand", "gene_type", "ensID", "gene", "ens_gene","Distance")
+    storelist <- list()
+    storelist[["all"]][["all"]] <- all_anno
+    message("getting peaks nearest distance to genes...")
+    nearest_distance = 5000
+    all_anno_nearest <- all_anno %>% dplyr::filter(Distance < nearest_distance )
+    storelist[["nearest"]][["all"]] <- all_anno_nearest
+    if (software == "diffbind_limma") {
       message(paste0("package used: ", software))
       storelist[["nearest"]][["de"]] <- all_anno_nearest %>% dplyr::filter(adj.P.Val < fdr & (logFC > log(fc,2) | logFC < -log(fc,2))) 
       storelist[["nearest"]][["up"]] <- all_anno_nearest %>% dplyr::filter(adj.P.Val < fdr & (logFC > log(fc,2)))
@@ -395,7 +373,7 @@ fn_nearest_gene_anno <- function(assaytype, software, contrasts, genefile, path,
       storelist[["all"]][["up"]] <- all_anno %>% dplyr::filter(adj.P.Val < fdr & (logFC > log(fc,2)))
       storelist[["all"]][["down"]] <- all_anno %>% dplyr::filter(adj.P.Val < fdr & (logFC < -log(fc,2)))
       contrastlist[[i]] <- storelist
-    }else if (software == "edger") {
+    }else if (software == "diffbind_edger") {
       message(paste0("package used: ", software))
       storelist[["nearest"]][["de"]] <- all_anno_nearest %>% dplyr::filter(FDR < fdr & (logFC > log(fc,2) | logFC < -log(fc,2))) 
       storelist[["nearest"]][["up"]] <- all_anno_nearest %>% dplyr::filter(FDR < fdr & (logFC > log(fc,2)))
@@ -404,7 +382,7 @@ fn_nearest_gene_anno <- function(assaytype, software, contrasts, genefile, path,
       storelist[["all"]][["up"]] <- all_anno %>% dplyr::filter(FDR < fdr & (logFC > log(fc,2)))
       storelist[["all"]][["down"]] <- all_anno %>% dplyr::filter(FDR < fdr & (logFC < -log(fc,2)))
       contrastlist[[i]] <- storelist
-    }else if (software == "deseq2") {
+    }else if (software == "diffbind_deseq2") {
       message(paste0("package used: ", software))
       storelist[["nearest"]][["de"]] <- all_anno_nearest %>% dplyr::filter(padj < fdr & (log2FoldChange > log(fc,2) | log2FoldChange < -log(fc,2))) 
       storelist[["nearest"]][["up"]] <- all_anno_nearest %>% dplyr::filter(padj < fdr & (log2FoldChange > log(fc,2)))
@@ -722,12 +700,32 @@ fn_integrate_bedtools <- function(omics_data_path_lists, binsize, columns_pos, c
 source("/mnt/beegfs6/home3/reid/av638/atacseq/iva_lab_gencode/integration/upset_out.R")
 
 # general MA plot using ggplot2
-fn_maplot_general <- function(df_with_values, x, y, colorby){
-  # message(paste0("x=", x, " y=", y, " coloring_by=", colorby))
-  ggplot(data=df_with_values, aes_string(x=x, y=y, colour=colorby)) + geom_point(alpha=0.4, size=1) + 
-    geom_hline(aes(yintercept = 0), colour = "black", size = 0.6) +
-    xlab("Avg Expression") + 
-    ylab("Fold Change") + theme_bw()
+fn_maplot <- function(df, columnbyorder, fdr, fc){
+  plotlist <- list()
+  message("rearranging and plotting ma...")
+  df <- df[,columnbyorder]
+  colnames(df) <- c("baseMean","log2FoldChange","padj","feature")
+  plotlist[["maplot"]] <- ggmaplot(df, fdr = fdr, fc = fc, size = 0.3, palette = c("#D22B2B", "#1465AC", "darkgray"),
+           genenames = df$feature, legend = "top", top = 20,
+           font.label = c("bold", 5), font.legend = "bold", font.main = "bold", ggtheme = ggplot2::theme_minimal())
+}
+
+fn_maplot_general <- function(df, columnbyorder, fdr, logfc){
+  plotlist <- list()
+  message("rearranging and plotting ma...")
+  df <- df[,columnbyorder]
+  colnames(df) <- c("baseMean","log2FoldChange","padj","feature")
+  df$color <- ifelse(df$log2FoldChange > logfc & df$padj < fdr, "#B31B21", 
+                     ifelse(df$log2FoldChange < -logfc & df$padj < fdr, "#1465AC", "grey"))
+  plotlist[["maplot"]] <- ggplot(df, aes(x = baseMean, y = log2FoldChange, color = color)) + geom_point(alpha = 0.8, size = 0.4) +
+    ggtitle("MA Plot") + xlab("Average Expression (AveExpr)") + ylab("Log-Fold Change (logFC)") +
+    scale_color_identity() + theme_minimal()+
+    annotate("text", x = max(df$baseMean), y = max(df$log2FoldChange), 
+             label = paste("Up:", sum(df$log2FoldChange > logfc & df$padj < fdr)),
+             hjust = 1, vjust = 1, color = "black") +
+    annotate("text", x = max(df$baseMean), y = min(df$log2FoldChange), 
+             label = paste("Down:", sum(df$log2FoldChange < -logfc & df$padj < fdr)),
+             hjust = 1, vjust = 1, color = "black")
 }
 
 
@@ -839,9 +837,11 @@ atacseqkd_deseq2_list[["dar_analysis"]] <- fn_deseq2(atacseqkd_deseq2_list$proce
 # get positions of dars
 atacseqkd_deseq2_list[["annotation"]] <- fn_consensus_gene_anno("atacseqkd", "deseq2", atacseqkd_deseq2_list$dar_analysis$de_analysis, atacseqkd_deseq2_list$consensus, atacseqkd_deseq2_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt", 0.05, 2)
 
-write.table(atacseqkd_deseq2_list$annotation$shCRAMP1_shControl$all$de[,c(8:12,1,3,7)] %>% distinct(), "atacseqkd_deseq2_shCRAMP1_shControl_de.bed", sep="\t", quote = F, append = F, row.names = F, col.names = F)
-write.table(atacseqkd_deseq2_list$annotation$shSUZ12_shControl$all$de[,c(8:12,1,3,7)] %>% distinct(), "atacseqkd_deseq2_shSUZ12_shControl_de.bed", sep="\t", quote = F, append = F, row.names = F, col.names = F)
+atacseqkd_deseq2_list$dar_analysis$de_analysis$shCRAMP1_shControl[["maplot"]] <- fn_maplot(atacseqkd_deseq2_list$dar_analysis$de_analysis$shCRAMP1_shControl$all, c(1,2,6,7), 0.05, 2)
+atacseqkd_deseq2_list$dar_analysis$de_analysis$shSUZ12_shControl[["maplot"]] <- fn_maplot(atacseqkd_deseq2_list$dar_analysis$de_analysis$shSUZ12_shControl$all, c(1,2,6,7), 0.05, 2)
 
+write.table(atacseqkd_deseq2_list$annotation$shCRAMP1_shControl$all$de[,c(8:10,3,7,1,11:12)] %>% distinct(), "atacseqkd_deseq2_shCRAMP1_shControl_de.bed", sep="\t", quote = F, append = F, row.names = F, col.names = F)
+write.table(atacseqkd_deseq2_list$annotation$shSUZ12_shControl$all$de[,c(8:10,3,7,1,11:12)] %>% distinct(), "atacseqkd_deseq2_shSUZ12_shControl_de.bed", sep="\t", quote = F, append = F, row.names = F, col.names = F)
 
 # Overlap between cramp1 and suz12 target intervals
 # Venn diagram
@@ -881,11 +881,14 @@ atacseqkd_edger_list[["consensus"]] <- data.frame(fread("/mnt/home3/reid/av638/a
 
 atacseqkd_edger_list[["annotation"]] <- fn_consensus_gene_anno("atacseqkd", "edger", atacseqkd_edger_list$dar_analysis$dars, atacseqkd_edger_list$consensus, atacseqkd_edger_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt", 0.05, 2)
 
-atacseqkd_edger_list[["chipseeker"]] <- fn_run_chipseeker("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/macs2/broad_peak/", "atacseqkd", TxDb.Hsapiens.UCSC.hg38.knownGene, "org.Hs.eg.db", "*.broadPeak")
+# atacseqkd_edger_list[["chipseeker"]] <- fn_run_chipseeker("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/macs2/broad_peak/", "atacseqkd", TxDb.Hsapiens.UCSC.hg38.knownGene, "org.Hs.eg.db", "*.broadPeak")
+
+atacseqkd_edger_list$dar_analysis$dars$coef_shCRAMP1[["maplot"]] <- fn_maplot(atacseqkd_edger_list$dar_analysis$dars$coef_shCRAMP1$all, c(2,1,5,6), 0.05, 2)
+atacseqkd_edger_list$dar_analysis$dars$coef_shSUZ12[["maplot"]] <- fn_maplot(atacseqkd_edger_list$dar_analysis$dars$coef_shSUZ12$all, c(2,1,5,6), 0.05, 2)
 
 # get positions of dars
-write.table(atacseqkd_edger_list$annotation$coef_shCRAMP1$all$de[,c(7:11,1,2,6)] %>% distinct(), "atacseqkd_edger_shCRAMP1_shControl_de.bed", sep="\t", quote = F, append = F, row.names = F, col.names = F)
-write.table(atacseqkd_edger_list$annotation$coef_shSUZ12$all$de[,c(7:11,1,2,6)] %>% distinct(), "atacseqkd_edger_shSUZ12_shControl_de.bed", sep="\t", quote = F, append = F, row.names = F, col.names = F)
+write.table(atacseqkd_edger_list$annotation$coef_shCRAMP1$all$de[,c(7:9,2,6,1,10:11)] %>% distinct(), "atacseqkd_edger_shCRAMP1_shControl_de.bed", sep="\t", quote = F, append = F, row.names = F, col.names = F)
+write.table(atacseqkd_edger_list$annotation$coef_shSUZ12$all$de[,c(7:9,2,6,1,10:11)] %>% distinct(), "atacseqkd_edger_shSUZ12_shControl_de.bed", sep="\t", quote = F, append = F, row.names = F, col.names = F)
 
 # Overlap between cramp1 and suz12 target intervals
 # Venn diagram
@@ -895,8 +898,8 @@ fn_plot_venn(list_atacseqkd_edger_de_shCRAMP1_coef_shSUZ12, c("#0073C2FF", "#EFC
 list_atacseqkd_edger_up_shCRAMP1_coef_shSUZ12 <- list(shCRAMP1 = unique(atacseqkd_edger_list$dar_analysis$dars$coef_shCRAMP1$up$feature_id), shSUZ12=unique(atacseqkd_edger_list$dar_analysis$dars$coef_shSUZ12$up$feature_id))
 fn_plot_venn(list_atacseqkd_edger_up_shCRAMP1_coef_shSUZ12, c("#0073C2FF", "#EFC000FF","#0073C2FF", "#EFC000FF"))
 
-plotMDS(atacseqkd_edger_list$dge_obj$mds,top = 100000, pch = 16, cex = 1, dim.plot = c(1,2), col=c(rep("black",3), rep("red",3)))
-
+plotMDS(atacseqkd_edger_list$dge_obj$mds,top = 100000, pch = 16, cex = 1, dim.plot = c(1,2), col=c(rep("black",2), rep("red",2), rep("blue",2)))
+plotMDS(atacseqkd_edger_list$dge_obj$mds)
 
 atacseqkd_edger_list[["aggregate_pergene"]][["coef_shCRAMP1"]][["nearest"]][["de"]] <- fn_aggregate_feature(atacseqkd_edger_list$annotation$coef_shCRAMP1$nearest$de, c(3), "ens_gene", mean)
 atacseqkd_edger_list[["aggregate_pergene"]][["coef_shSUZ12"]][["nearest"]][["de"]] <- fn_aggregate_feature(atacseqkd_edger_list$annotation$coef_shSUZ12$nearest$de, c(3), "ens_gene", mean)
@@ -904,7 +907,68 @@ atacseqkd_edger_list[["aggregate_pergene"]][["coef_shSUZ12"]][["nearest"]][["de"
 colnames(atacseqkd_edger_list$aggregate_pergene$coef_shCRAMP1$nearest$de$aggregated) <- c("ensID_Gene", "mean_log2FC")
 colnames(atacseqkd_edger_list$aggregate_pergene$coef_shSUZ12$nearest$de$aggregated) <- c("ensID_Gene", "mean_log2FC")
 
+# edgeR with consensus peaks (direct from nextflow)
+atacseqkd_limma_list <- list()
 
+atacseqkd_limma_list[["dds"]] <- fn_load_rdata(atacseqkd_deseq2_path, "boutfolder/bowtie2/merged_library/macs2/broad_peak/consensus/deseq2/consensus_peaks.mLb.clN.dds.RData")
+atacseqkd_limma_list[["gene"]] <- fn_read_genefile("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/macs2/broad_peak/consensus/", "gene_gencode_human_gencode_out.sorted.chr.txt")
+atacseqkd_limma_list[["counts"]] <- fn_dds_counts(atacseqkd_limma_list$dds)
+atacseqkd_limma_list[["samples_selected"]] <- fn_sample_filter(atacseqkd_limma_list$counts, samplefilter = FALSE)
+atacseqkd_limma_list[["processed_counts"]] <- atacseqkd_limma_list[["samples_selected"]][,c(6,4,5,1,3,2)] # Specific requirement here
+atacseqkd_limma_list[["coldata"]] <- fn_make_coldata_dds(atacseqkd_limma_list$dds, samplefilter = FALSE)
+colnames(atacseqkd_limma_list$coldata)[colnames(atacseqkd_limma_list$coldata) == "condition"] <- "Condition" # Specific requirement here
+atacseqkd_limma_list$coldata$Condition <- factor(atacseqkd_limma_list$coldata$Condition)
+atacseqkd_limma_list$coldata <- atacseqkd_limma_list$coldata[c(6,4,5,1,3,2),c(1:3)] # Specific requirement here
+
+
+atacseqkd_limma_list[["dge_obj"]] <- fn_limma_create(atacseqkd_limma_list$processed_counts, atacseqkd_limma_list$coldata)
+
+# create contrasts
+atacseqkd_limma_list[["contrasts"]] <- limma::makeContrasts(paste0(colnames(atacseqkd_limma_list$dge_obj$design)[c(2,1)], collapse = "-"),
+                                                            paste0(colnames(atacseqkd_limma_list$dge_obj$design)[c(3,1)], collapse = "-"), levels = atacseqkd_limma_list$dge_obj$design)
+
+atacseqkd_limma_list[["dar_analysis"]] <- fn_limma_de(atacseqkd_limma_list$dge_obj$fit, atacseqkd_limma_list$contrasts, 0.05, 2)
+
+atacseqkd_limma_list[["consensus"]] <- data.frame(fread("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/macs2/broad_peak/consensus/consensus_peaks.mLb.clN.bed"))
+# scaffolds with non-chr annotation wil be filtered
+atacseqkd_limma_list[["annotation"]] <- fn_consensus_gene_anno("atacseqkd", "limma", atacseqkd_limma_list$dar_analysis$dars,atacseqkd_limma_list$consensus, atacseqkd_limma_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt", 0.05, 2)
+
+# Create MA plot
+atacseqkd_limma_list$dar_analysis$dars$coef_shCRAMP1_shControl[["maplot"]] <- fn_maplot_general(atacseqkd_limma_list$dar_analysis$dars$coef_shCRAMP1_shControl$all, c(2,1,5,7), 0.05, 1)
+atacseqkd_limma_list$dar_analysis$dars$coef_shSUZ12_shControl[["maplot"]] <- fn_maplot_general(atacseqkd_limma_list$dar_analysis$dars$coef_shSUZ12_shControl$all, c(2,1,5,7), 0.05, 1)
+
+# get positions of dars
+write.table(atacseqkd_limma_list$annotation$coef_shCRAMP1$all$de[,c(8:10,2,6,1,11:12)] %>% distinct(), "atacseqkd_limma_shCRAMP1_shControl_de.bed", sep="\t", quote = F, append = F, row.names = F, col.names = F)
+write.table(atacseqkd_limma_list$annotation$coef_shSUZ12$all$de[,c(8:10,2,6,1,11:12)] %>% distinct(), "atacseqkd_limma_shSUZ12_shControl_de.bed", sep="\t", quote = F, append = F, row.names = F, col.names = F)
+
+# Overlap between cramp1 and suz12 target intervals
+# Venn diagram
+list_atacseqkd_limma_de_shCRAMP1_coef_shSUZ12 <- list(shCRAMP1 = unique(atacseqkd_limma_list$dar_analysis$dars$coef_shCRAMP1_shControl$de$feature_id), shSUZ12=unique(atacseqkd_limma_list$dar_analysis$dars$coef_shSUZ12_shControl$de$feature_id))
+fn_plot_venn(list_atacseqkd_limma_de_shCRAMP1_coef_shSUZ12, c("#0073C2FF", "#EFC000FF","#0073C2FF", "#EFC000FF"))
+
+list_atacseqkd_limma_up_shCRAMP1_coef_shSUZ12 <- list(shCRAMP1 = unique(atacseqkd_limma_list$dar_analysis$dars$coef_shCRAMP1_shControl$up$feature_id), shSUZ12=unique(atacseqkd_limma_list$dar_analysis$dars$coef_shSUZ12_shControl$up$feature_id))
+fn_plot_venn(list_atacseqkd_limma_up_shCRAMP1_coef_shSUZ12, c("#0073C2FF", "#EFC000FF","#0073C2FF", "#EFC000FF"))
+
+plotMDS(atacseqkd_limma_list$dge_obj$dgelist,top = 100000, pch = 16, cex = 1, dim.plot = c(1,2), col=c(rep("black",2), rep("red",2), rep("blue",2)))
+plotMDS(atacseqkd_limma_list$dge_obj$dgelist)
+
+atacseqkd_limma_list[["aggregate_pergene"]][["coef_shCRAMP1_shControl"]][["nearest"]][["de"]] <- fn_aggregate_feature(atacseqkd_limma_list$annotation$coef_shCRAMP1_shControl$nearest$de, c(3), "ens_gene", mean)
+atacseqkd_limma_list[["aggregate_pergene"]][["coef_shSUZ12_shControl"]][["nearest"]][["de"]] <- fn_aggregate_feature(atacseqkd_limma_list$annotation$coef_shSUZ12_shControl$nearest$de, c(3), "ens_gene", mean)
+
+colnames(atacseqkd_limma_list$aggregate_pergene$coef_shCRAMP1_shControl$nearest$de$aggregated) <- c("ensID_Gene", "mean_log2FC")
+colnames(atacseqkd_limma_list$aggregate_pergene$coef_shSUZ12_shControl$nearest$de$aggregated) <- c("ensID_Gene", "mean_log2FC")
+
+#--------------------
+atacseqkd_venn_consensus_list_CRAMP1 <- list(
+  e_CRAMP1_up = unique(do.call(paste, c(atacseqkd_edger_list$annotation$coef_shCRAMP1$all$up[,c(7:9)], sep="%"))),
+  e_CRAMP1_down = unique(do.call(paste, c(atacseqkd_edger_list$annotation$coef_shCRAMP1$all$down[,c(7:9)], sep="%"))),
+  l_CRAMP1_up = unique(do.call(paste, c(atacseqkd_limma_list$annotation$coef_shCRAMP1_shControl$all$up[,c(8:10)], sep="%"))),
+  l_CRAMP1_down = unique(do.call(paste, c(atacseqkd_limma_list$annotation$coef_shCRAMP1_shControl$all$down[,c(8:10)], sep="%"))),
+  d_CRAMP1_up = unique(do.call(paste, c(atacseqkd_deseq2_list$annotation$shCRAMP1_shControl$all$up[,c(8:10)], sep="%"))),
+  d_CRAMP1_down = unique(do.call(paste, c(atacseqkd_deseq2_list$annotation$shCRAMP1_shControl$all$down[,c(8:10)], sep="%")))
+)
+upset(fromList(atacseqkd_venn_consensus_list_CRAMP1), order.by = "freq", nsets = 6)
+#--------------------
 # diffbind
 diffbind_atacseqkd_samplesheet <- read.csv("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/diffbind_atac_seq_samplesheet.csv")
 atacseqkd_diffbind_list <- list()
@@ -914,112 +978,255 @@ plot(atacseqkd_diffbind_list$prep$ovp_rate,type ='b',ylab='# peaks', xlab='Overl
 
 atacseqkd_diffbind_list[["counts"]] <- fn_diffbind_count(atacseqkd_diffbind_list$prep$dba_obj, 100)
 
-atacseqkd_diffbind_list[["dar_analysis"]][["edgeR"]] <- fn_diffbind_de(atacseqkd_diffbind_list$counts$dba_obj, 0.05, 2, "edgeR")
-atacseqkd_diffbind_list[["dar_analysis"]][["deseq2"]] <- fn_diffbind_de(atacseqkd_diffbind_list$counts$dba_obj, 0.05, 2, "deseq2")
+atacseqkd_diffbind_list[["norm"]] <-  fn_diffbind_norm(atacseqkd_diffbind_list$counts$dba_obj)
+
+atacseqkd_diffbind_list[["dar_analysis"]][["edgeR"]] <- fn_diffbind_de(atacseqkd_diffbind_list$norm$norm, 0.05, 2, "edgeR")
+atacseqkd_diffbind_list[["dar_analysis"]][["deseq2"]] <- fn_diffbind_de(atacseqkd_diffbind_list$norm$norm, 0.05, 2, "deseq2")
 
 atacseqkd_diffbind_list[["gene"]] <- fn_read_genefile("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/macs2/broad_peak/consensus/", "gene_gencode_human_gencode_out.sorted.chr.txt")
 
-atacseqkd_diffbind_list[["annotation"]][["edgeR"]] <- fn_nearest_gene_anno("atacseqkd", "diffbind",atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts, atacseqkd_diffbind_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt", 0.05, 2)
-atacseqkd_diffbind_list[["annotation"]][["deseq2"]] <- fn_nearest_gene_anno("atacseqkd", "diffbind",atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts, atacseqkd_diffbind_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt", 0.05, 2)
+atacseqkd_diffbind_list[["annotation"]][["edgeR"]] <- fn_diffbind_gene_anno("atacseqkd", "diffbind",atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts, atacseqkd_diffbind_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt", 0.05, 2)
+atacseqkd_diffbind_list[["annotation"]][["deseq2"]] <- fn_diffbind_gene_anno("atacseqkd", "diffbind",atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts, atacseqkd_diffbind_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt", 0.05, 2)
 
-# limma
-atacseqkd_limma_list <- list()
-atacseqkd_counts <- data.frame(atacseqkd_diffbind_list$counts$dba_obj$binding)
-rownames(atacseqkd_counts) <- paste0("chr",atacseqkd_counts$CHR, "%",atacseqkd_counts$START,"%", atacseqkd_counts$END)
-atacseqkd_limma_list[["counts"]] <- atacseqkd_counts[,c(4:9)]
-atacseqkd_limma_list[["coldata"]] <- atacseqkd_diffbind_list$counts$info
-atacseqkd_limma_list$coldata$Condition <- factor(atacseqkd_limma_list$coldata$Condition)
-atacseqkd_limma_list[["dge_obj"]] <- fn_limma_create(atacseqkd_limma_list$counts, atacseqkd_limma_list$coldata)
+# Create MA plot
+atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shCRAMP1_shControl[["maplot"]] <- fn_maplot(atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shCRAMP1_shControl$all, c(6,9,11,12), 0.05, 1)
+atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shSUZ12_shControl[["maplot"]] <- fn_maplot(atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shSUZ12_shControl$all, c(6,9,11,12), 0.05, 1)
+atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts$contrast_shCRAMP1_shControl[["maplot"]] <- fn_maplot(atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts$contrast_shCRAMP1_shControl$all, c(6,9,11,12), 0.05, 1)
+atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts$contrast_shSUZ12_shControl[["maplot"]] <- fn_maplot(atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts$contrast_shSUZ12_shControl$all, c(6,9,11,12), 0.05, 1)
+
+write.table(atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shCRAMP1_shControl$de[,c(1:3,9,11:12)] %>% distinct(), "atacseqkd_diffbind_e_shCRAMP1_shControl_de.bed", sep="\t", quote = F, append = F, row.names = F, col.names = F)
+write.table(atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shSUZ12_shControl$de[,c(1:3,9,11:12)] %>% distinct(), "atacseqkd_diffbind_e_shSUZ12_shControl_de.bed", sep="\t", quote = F, append = F, row.names = F, col.names = F)
+write.table(atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts$contrast_shCRAMP1_shControl$de[,c(1:3,9,11:12)] %>% distinct(), "atacseqkd_diffbind_d_shCRAMP1_shControl_de.bed", sep="\t", quote = F, append = F, row.names = F, col.names = F)
+write.table(atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts$contrast_shSUZ12_shControl$de[,c(1:3,9,11:12)] %>% distinct(), "atacseqkd_diffbind_d_shSUZ12_shControl_de.bed", sep="\t", quote = F, append = F, row.names = F, col.names = F)
+
+# Overlap between cramp1 and suz12 target intervals
+# Venn diagram
+list_atacseqkd_diffbind_e_de_shCRAMP1_vs_shSUZ12 <- list(shCRAMP1 = unique(atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shCRAMP1_shContro$de$feature_id), shSUZ12=unique(atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shSUZ12_shControl$de$feature_id))
+fn_plot_venn(list_atacseqkd_diffbind_e_de_shCRAMP1_vs_shSUZ12, c("#0073C2FF", "#EFC000FF","#0073C2FF", "#EFC000FF"))
+list_atacseqkd_diffbind_d_de_shCRAMP1_vs_shSUZ12 <- list(shCRAMP1 = unique(atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts$contrast_shCRAMP1_shContro$de$feature_id), shSUZ12=unique(atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts$contrast_shSUZ12_shControl$de$feature_id))
+fn_plot_venn(list_atacseqkd_diffbind_d_de_shCRAMP1_vs_shSUZ12, c("#0073C2FF", "#EFC000FF","#0073C2FF", "#EFC000FF"))
+
+#PCA
+dba.plotPCA(atacseqkd_diffbind_list$norm$norm, method=DBA_ALL_METHODS, attributes=DBA_FACTOR, label=DBA_ID)
+
+# check for a match before and after dars analysis
+atacseqkd_diffbind_list[["counts"]][["reads"]]  <- dba.count(atacseqkd_diffbind_list$counts$dba_obj, peaks=NULL, score=DBA_SCORE_READS)
+atacseqkd_diffbind_list[["counts"]][["counts"]] <- dba.peakset(atacseqkd_diffbind_list$counts$reads, bRetrieve=TRUE, DataType=DBA_DATA_FRAME)
+atacseqkd_diffbind_counts <- data.frame(atacseqkd_diffbind_list$counts$counts)
+rownames(atacseqkd_diffbind_counts) <- paste0(atacseqkd_diffbind_counts$CHR, "%",atacseqkd_diffbind_counts$START,"%", atacseqkd_diffbind_counts$END)
+atacseqkd_diffbind_counts <- atacseqkd_diffbind_counts[,-c(1:3)]
+
+atacseqkd_diffbind_list[["binding_mat"]] <- data.frame(atacseqkd_diffbind_list$counts$dba_obj$binding[,c(1:3)])
+atacseqkd_diffbind_list$binding_mat$CHR <- paste0("chr",atacseqkd_diffbind_list$binding_mat$CHR)
+length(intersect(
+do.call(paste, c(atacseqkd_diffbind_list$counts$counts[,c(1:3)], sep="%")),
+do.call(paste, c(atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shCRAMP1_shControl$all[,c(1:3)], sep="%"))
+))
+
+length(intersect(
+  do.call(paste, c(atacseqkd_diffbind_list$counts$counts[,c(1:3)], sep="%")),
+  do.call(paste, c(atacseqkd_diffbind_list$binding_mat, sep="%"))
+))
+
+# diffbind_deseq2 
+atacseqkd_diffbind_deseq2_list <- list()
+
+atacseqkd_diffbind_deseq2_list[["counts"]] <- atacseqkd_diffbind_counts
+atacseqkd_diffbind_deseq2_list[["coldata"]] <- atacseqkd_diffbind_list$counts$info
+rownames(atacseqkd_diffbind_deseq2_list$coldata) <- atacseqkd_diffbind_deseq2_list$coldata$ID
+atacseqkd_diffbind_deseq2_list$coldata$condition <- factor(atacseqkd_diffbind_deseq2_list$coldata$Condition)
+atacseqkd_diffbind_deseq2_list$coldata <- atacseqkd_diffbind_deseq2_list$coldata[,c(1,8,3)]
+all(rownames(atacseqkd_diffbind_deseq2_list$coldata) == colnames(atacseqkd_diffbind_deseq2_list$counts)) #should print TRUE
+# de analysis
+atacseqkd_diffbind_deseq2_list[["dar_analysis"]] <- fn_deseq2(atacseqkd_diffbind_deseq2_list$counts, atacseqkd_diffbind_deseq2_list$coldata, 0.05, 2)
+
+atacseqkd_diffbind_deseq2_list[["gene"]] <- fn_read_genefile("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/macs2/broad_peak/consensus/", "gene_gencode_human_gencode_out.sorted.chr.txt")
+# get positions of dars
+atacseqkd_diffbind_deseq2_list[["annotation"]] <- fn_diffbind_and_packages_gene_anno("atacseqkd", "diffbind_deseq2", atacseqkd_diffbind_deseq2_list$dar_analysis$de_analysis, atacseqkd_diffbind_deseq2_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt", 0.05, 2)
+
+atacseqkd_diffbind_deseq2_list$dar_analysis$de_analysis$shCRAMP1_shControl[["maplot"]] <- fn_maplot(atacseqkd_diffbind_deseq2_list$dar_analysis$de_analysis$shCRAMP1_shControl$all, c(1,2,6,7), 0.05, 2)
+atacseqkd_diffbind_deseq2_list$dar_analysis$de_analysis$shSUZ12_shControl[["maplot"]] <- fn_maplot(atacseqkd_diffbind_deseq2_list$dar_analysis$de_analysis$shSUZ12_shControl$all, c(1,2,6,7), 0.05, 2)
+
+write.table(atacseqkd_diffbind_deseq2_list$annotation$shCRAMP1_shControl$all$de[,c(1:3,5,9)] %>% distinct(), "atacseqkd_diffbind_deseq2_shCRAMP1_shControl_de.bed", sep="\t", quote = F, append = F, row.names = F, col.names = F)
+write.table(atacseqkd_diffbind_deseq2_list$annotation$shSUZ12_shControl$all$de[,c(1:3,5,9)] %>% distinct(), "atacseqkd_diffbind_deseq2_shSUZ12_shControl_de.bed", sep="\t", quote = F, append = F, row.names = F, col.names = F)
+
+# Overlap between cramp1 and suz12 target intervals
+# Venn diagram
+list_atacseqkd_diffbind_deseq2_de_shCRAMP1_shSUZ12_shControl <- list(shCRAMP1 = unique(atacseqkd_diffbind_deseq2_list$dar_analysis$de_analysis$shCRAMP1_shControl$de$feature_id), shSUZ12=unique(atacseqkd_diffbind_deseq2_list$dar_analysis$de_analysis$shSUZ12_shControl$de$feature_id))
+fn_plot_venn(list_atacseqkd_diffbind_deseq2_de_shCRAMP1_shSUZ12_shControl, c("#0073C2FF", "#EFC000FF","#0073C2FF", "#EFC000FF"))
+
+plotPCA(atacseqkd_diffbind_deseq2_list$dar_analysis$vstO, intgroup="ID", returnData=FALSE)
+
+
+# edgeR analysis
+atacseqkd_diffbind_edger_list <- list()
+
+atacseqkd_diffbind_edger_list[["counts"]] <- atacseqkd_diffbind_counts
+atacseqkd_diffbind_edger_list[["coldata"]] <- atacseqkd_diffbind_list$counts$info
+atacseqkd_diffbind_edger_list$coldata$Condition <- factor(atacseqkd_diffbind_edger_list$coldata$Condition)
+atacseqkd_diffbind_edger_list[["dge_obj"]] <- fn_edger_create(atacseqkd_diffbind_edger_list$counts, atacseqkd_diffbind_edger_list$coldata)
+
+atacseqkd_diffbind_edger_list[["dar_analysis"]] <- fn_edger_de(atacseqkd_diffbind_edger_list$dge_obj$lmfit, atacseqkd_diffbind_edger_list$dge_obj$design, 0.05, 2)
+
+atacseqkd_diffbind_edger_list[["gene"]] <- fn_read_genefile("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/macs2/broad_peak/consensus/", "gene_gencode_human_gencode_out.sorted.chr.txt")
+
+atacseqkd_diffbind_edger_list[["annotation"]] <- fn_diffbind_and_packages_gene_anno("atacseqkd", "diffbind_edger", atacseqkd_diffbind_edger_list$dar_analysis$dars, atacseqkd_diffbind_edger_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt", 0.05, 2)
+
+atacseqkd_diffbind_edger_list$dar_analysis$dars$coef_shCRAMP1[["maplot"]] <- fn_maplot(atacseqkd_diffbind_edger_list$dar_analysis$dars$coef_shCRAMP1$all, c(2,1,5,6), 0.05, 2)
+atacseqkd_diffbind_edger_list$dar_analysis$dars$coef_shSUZ12[["maplot"]] <- fn_maplot(atacseqkd_diffbind_edger_list$dar_analysis$dars$coef_shSUZ12$all, c(2,1,5,6), 0.05, 2)
+
+# get positions of dars
+write.table(atacseqkd_diffbind_edger_list$annotation$coef_shCRAMP1$all$de[,c(1:4,8)] %>% distinct(), "atacseqkd_diffbind_edger_shCRAMP1_shControl_de.bed", sep="\t", quote = F, append = F, row.names = F, col.names = F)
+write.table(atacseqkd_diffbind_edger_list$annotation$coef_shSUZ12$all$de[,c(1:4,8)] %>% distinct(), "atacseqkd_diffbind_edger_shSUZ12_shControl_de.bed", sep="\t", quote = F, append = F, row.names = F, col.names = F)
+
+# Overlap between cramp1 and suz12 target intervals
+# Venn diagram
+list_atacseqkd_diffbind_edger_de_shCRAMP1_coef_shSUZ12 <- list(shCRAMP1 = unique(atacseqkd_diffbind_edger_list$dar_analysis$dars$coef_shCRAMP1$de$feature_id), shSUZ12=unique(atacseqkd_diffbind_edger_list$dar_analysis$dars$coef_shSUZ12$de$feature_id))
+fn_plot_venn(list_atacseqkd_diffbind_edger_de_shCRAMP1_coef_shSUZ12, c("#0073C2FF", "#EFC000FF","#0073C2FF", "#EFC000FF"))
+
+plotMDS(atacseqkd_diffbind_edger_list$dge_obj$mds,top = 100000, pch = 16, cex = 1, dim.plot = c(1,2), col=c(rep("black",2), rep("red",2), rep("blue",2)))
+plotMDS(atacseqkd_diffbind_edger_list$dge_obj$mds)
+
+# limma analysis
+atacseqkd_diffbind_limma_list <- list()
+
+atacseqkd_diffbind_limma_list[["counts"]] <- atacseqkd_diffbind_counts
+atacseqkd_diffbind_limma_list[["coldata"]] <- atacseqkd_diffbind_list$counts$info
+atacseqkd_diffbind_limma_list$coldata$Condition <- factor(atacseqkd_diffbind_limma_list$coldata$Condition)
+atacseqkd_diffbind_limma_list[["dge_obj"]] <- fn_limma_create(atacseqkd_diffbind_limma_list$counts, atacseqkd_diffbind_limma_list$coldata)
 
 # create contrasts
-atacseqkd_limma_list[["contrasts"]] <- limma::makeContrasts(paste0(colnames(atacseqkd_limma_list$dge_obj$design)[c(2,1)], collapse = "-"),
-                                          paste0(colnames(atacseqkd_limma_list$dge_obj$design)[c(3,1)], collapse = "-"), levels = atacseqkd_limma_list$dge_obj$design)
+atacseqkd_diffbind_limma_list[["contrasts"]] <- limma::makeContrasts(paste0(colnames(atacseqkd_diffbind_limma_list$dge_obj$design)[c(2,1)], collapse = "-"),
+                                                                     paste0(colnames(atacseqkd_diffbind_limma_list$dge_obj$design)[c(3,1)], collapse = "-"), levels = atacseqkd_diffbind_limma_list$dge_obj$design)
 
-atacseqkd_limma_list[["dar_analysis"]] <- fn_limma_de(atacseqkd_limma_list$dge_obj$fit, atacseqkd_limma_list$contrasts, 0.05, 2)
+atacseqkd_diffbind_limma_list[["dar_analysis"]] <- fn_limma_de(atacseqkd_diffbind_limma_list$dge_obj$fit, atacseqkd_diffbind_limma_list$contrasts, 0.05, 2)
 
-atacseqkd_limma_list[["gene"]] <- fn_read_genefile("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/macs2/broad_peak/consensus/", "gene_gencode_human_gencode_out.sorted.chr.txt")
+atacseqkd_diffbind_limma_list[["gene"]] <- fn_read_genefile("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/macs2/broad_peak/consensus/", "gene_gencode_human_gencode_out.sorted.chr.txt")
 
-atacseqkd_limma_list[["annotation"]] <- fn_nearest_gene_anno("atacseqkd", "limma", atacseqkd_limma_list$dar_analysis$dars, atacseqkd_limma_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt", 0.05, 2)
+atacseqkd_diffbind_limma_list[["annotation"]] <- fn_diffbind_and_packages_gene_anno("atacseqkd", "diffbind_limma", atacseqkd_diffbind_limma_list$dar_analysis$dars, atacseqkd_diffbind_limma_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt", 0.05, 2)
 
+# Create MA plot
+atacseqkd_diffbind_limma_list$dar_analysis$dars$coef_shCRAMP1_shControl[["maplot"]] <- fn_maplot(atacseqkd_diffbind_limma_list$dar_analysis$dars$coef_shCRAMP1_shControl$all, c(2,1,5,7), 0.05, 2)
+atacseqkd_diffbind_limma_list$dar_analysis$dars$coef_shSUZ12_shControl[["maplot"]] <- fn_maplot(atacseqkd_diffbind_limma_list$dar_analysis$dars$coef_shSUZ12_shControl$all, c(2,1,5,7), 0.05, 2)
 
-
-# diffbind deseq2 
-atacseqkd_deseq2_diff_list <- list()
-atacseqkd_counts <- data.frame(atacseqkd_diffbind_list$counts$dba_obj$binding)
-rownames(atacseqkd_counts) <- paste0("chr",atacseqkd_counts$CHR, "%",atacseqkd_counts$START,"%", atacseqkd_counts$END)
-atacseqkd_deseq2_diff_list[["counts"]] <- atacseqkd_counts[,c(4:9)]
-
-atacseqkd_deseq2_diff_list[["coldata"]] <- atacseqkd_diffbind_list$counts$info
-rownames(atacseqkd_deseq2_diff_list$coldata) <- atacseqkd_deseq2_diff_list$coldata$ID
-atacseqkd_deseq2_diff_list$coldata$condition <- factor(atacseqkd_deseq2_diff_list$coldata$Condition)
-
-atacseqkd_deseq2_diff_list[["consensus"]] <- data.frame(fread("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/macs2/broad_peak/consensus/consensus_peaks.mLb.clN.bed"))
-# check
-all(rownames(atacseqkd_deseq2_diff_list$coldata) == colnames(atacseqkd_deseq2_diff_list$counts)) #should print TRUE
-
-# de analysis
-atacseqkd_deseq2_diff_list[["dar_analysis"]] <- fn_deseq2(atacseqkd_deseq2_diff_list$counts, atacseqkd_deseq2_diff_list$coldata, 0.05, 2)
-
-atacseqkd_deseq2_diff_list[["gene"]] <- fn_read_genefile("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/macs2/broad_peak/consensus/", "gene_gencode_human_gencode_out.sorted.chr.txt")
 # get positions of dars
-atacseqkd_deseq2_diff_list[["annotation"]] <- fn_deseq2_diffbind_nearest_gene_anno("atacseqkd", "deseq2_diffbind", atacseqkd_deseq2_diff_list$dar_analysis$de_analysis, atacseqkd_deseq2_diff_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt", 0.05, 2)
+write.table(atacseqkd_diffbind_limma_list$annotation$coef_shCRAMP1$all$de[,c(1:4,8)] %>% distinct(), "atacseqkd_diffbind_limma_shCRAMP1_shControl_de.bed", sep="\t", quote = F, append = F, row.names = F, col.names = F)
+write.table(atacseqkd_diffbind_limma_list$annotation$coef_shSUZ12$all$de[,c(1:4,8)] %>% distinct(), "atacseqkd_diffbind_limma_shSUZ12_shControl_de.bed", sep="\t", quote = F, append = F, row.names = F, col.names = F)
 
+# Overlap between cramp1 and suz12 target intervals
+# Venn diagram
+list_atacseqkd_diffbind_limma_de_shCRAMP1_coef_shSUZ12 <- list(shCRAMP1 = unique(atacseqkd_diffbind_limma_list$dar_analysis$dars$coef_shCRAMP1_shControl$de$feature_id), shSUZ12=unique(atacseqkd_diffbind_limma_list$dar_analysis$dars$coef_shSUZ12_shControl$de$feature_id))
+fn_plot_venn(list_atacseqkd_diffbind_limma_de_shCRAMP1_coef_shSUZ12, c("#0073C2FF", "#EFC000FF","#0073C2FF", "#EFC000FF"))
 
-atacseqkd_deseq2_out_ma <- atacseqkd_deseq2_diff_list$dar_analysis$de_analysis$shCRAMP1_shControl$all[,c(1,2,6)]
+plotMDS(atacseqkd_diffbind_limma_list$dge_obj$dgelist,top = 100000, pch = 16, cex = 1, dim.plot = c(1,2), col=c(rep("black",2), rep("red",2), rep("blue",2)))
+plotMDS(atacseqkd_diffbind_limma_list$dge_obj$dgelist)
 
-atacseqkd_edger_out_ma <- atacseqkd_edger_list$dar_analysis$dars$coef_shCRAMP1$all[,c(5,4,8)]
-colnames(atacseqkd_edger_out_ma) <- colnames(atacseqkd_deseq2_out_ma)
-rownames(atacseqkd_edger_out_ma) <- do.call(paste, c(atacseqkd_edger_list$dar_analysis$dars$coef_shCRAMP1$all[,c(1:3)], sep="%"))
+#--------------------
+atacseqkd_diffbind_venn_packages_list_CRAMP1 <- list(
+  e_CRAMP1_up = unique(do.call(paste, c(atacseqkd_diffbind_edger_list$annotation$coef_shCRAMP1$all$up[,c(1:3)], sep="%"))),
+  e_CRAMP1_down = unique(do.call(paste, c(atacseqkd_diffbind_edger_list$annotation$coef_shCRAMP1$all$down[,c(1:3)], sep="%"))),
+  l_CRAMP1_up = unique(do.call(paste, c(atacseqkd_diffbind_limma_list$annotation$coef_shCRAMP1_shControl$all$up[,c(1:3)], sep="%"))),
+  l_CRAMP1_down = unique(do.call(paste, c(atacseqkd_diffbind_limma_list$annotation$coef_shCRAMP1_shControl$all$down[,c(1:3)], sep="%"))),
+  d_CRAMP1_up = unique(do.call(paste, c(atacseqkd_diffbind_deseq2_list$annotation$shCRAMP1_shControl$all$up[,c(1:3)], sep="%"))),
+  d_CRAMP1_down = unique(do.call(paste, c(atacseqkd_diffbind_deseq2_list$annotation$shCRAMP1_shControl$all$down[,c(1:3)], sep="%")))
+)
+upset(fromList(atacseqkd_diffbind_venn_packages_list_CRAMP1), order.by = "freq", nsets = 6)
+#--------------------
 
-atacseqkd_limma_out_ma <- atacseqkd_limma_list$dar_analysis$dars$coef_shCRAMP1_shControl$all[,c(5,4,8)]
-colnames(atacseqkd_limma_out_ma) <- colnames(atacseqkd_deseq2_out_ma)
-rownames(atacseqkd_limma_out_ma) <- do.call(paste, c(atacseqkd_limma_list$dar_analysis$dars$coef_shCRAMP1_shControl$all[,c(1:3)], sep="%"))
-
-ggmaplot(atacseqkd_deseq2_out_ma, fdr = 0.05, fc = 2, size = 0.3, palette = c("#D22B2B", "#1465AC", "darkgray"),
-         genenames = rownames(atacseqkd_deseq2_out_ma), legend = "top", top = 20,
-         font.label = c("bold", 5), font.legend = "bold", font.main = "bold", ggtheme = ggplot2::theme_minimal())
-
-ggmaplot(atacseqkd_edger_out_ma, fdr = 0.05, fc = 2, size = 0.3, palette = c("#D22B2B", "#1465AC", "darkgray"),
-         genenames = rownames(atacseqkd_edger_out_ma), legend = "top", top = 20,
-         font.label = c("bold", 5), font.legend = "bold", font.main = "bold", ggtheme = ggplot2::theme_minimal())
-
-ggmaplot(atacseqkd_limma_out_ma, fdr = 0.05, fc = 2, size = 0.3, palette = c("#D22B2B", "#1465AC", "darkgray"),
-         genenames = rownames(atacseqkd_limma_out_ma), legend = "top", top = 20,
-         font.label = c("bold", 5), font.legend = "bold", font.main = "bold", ggtheme = ggplot2::theme_minimal())+ xlim(c(-0.2, 3.5))
-
-
-atacseqkd_diffbind_edger_out_ma <- atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shCRAMP1_shControl$all[,c(6,9,11)]
-colnames(atacseqkd_diffbind_edger_out_ma) <- colnames(atacseqkd_deseq2_out_ma)
-rownames(atacseqkd_diffbind_edger_out_ma) <- atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shCRAMP1_shControl$all$interval
-ggmaplot(atacseqkd_diffbind_edger_out_ma, fdr = 0.05, fc = 2, size = 0.3, palette = c("#D22B2B", "#1465AC", "darkgray"),
-       genenames = rownames(atacseqkd_diffbind_edger_out_ma), legend = "top", top = 20,
-       font.label = c("bold", 5), font.legend = "bold", font.main = "bold", ggtheme = ggplot2::theme_minimal())
-
-atacseqkd_diffbind_deseq2_out_ma <- atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts$contrast_shCRAMP1_shControl$all[,c(6,9,11)]
-colnames(atacseqkd_diffbind_deseq2_out_ma) <- colnames(atacseqkd_deseq2_out_ma)
-rownames(atacseqkd_diffbind_deseq2_out_ma) <- do.call(paste, c(atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts$contrast_shCRAMP1_shControl$all[,c(1:3)], sep="%"))
-ggmaplot(atacseqkd_diffbind_deseq2_out_ma, fdr = 0.05, fc = 2, size = 0.3, palette = c("#D22B2B", "#1465AC", "darkgray"),
-         genenames = rownames(atacseqkd_diffbind_deseq2_out_ma), legend = "top", top = 20,
-         font.label = c("bold", 5), font.legend = "bold", font.main = "bold", ggtheme = ggplot2::theme_minimal())
-
-
-#  export bed files
-fn_export_bed("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", atacseqkd_edger_list$annotation, "all", "all", "txt")
-
-# compare softwares up and down intervals
+# Since diffbind regions are shared I can compare softwares up and down intervals
 ### for diffbind edgeR contrast control - sample so take down i.e they are upregulated in CRAMP1
 ### for limma edgeR contrast sample - control so take down i.e they are upregulated in CRAMP1 (atacseqkd_limma_list$contrasts)
+# Note: I labelled down as up and up as down for diffbind outputs
+#--------------------
+atacseqkd_diffbind_with_packages_list_CRAMP1 <- list(
+  e_CRAMP1_up = unique(do.call(paste, c(atacseqkd_diffbind_edger_list$annotation$coef_shCRAMP1$all$up[,c(1:3)], sep="%"))),
+  e_CRAMP1_down = unique(do.call(paste, c(atacseqkd_diffbind_edger_list$annotation$coef_shCRAMP1$all$down[,c(1:3)], sep="%"))),
+  l_CRAMP1_up = unique(do.call(paste, c(atacseqkd_diffbind_limma_list$annotation$coef_shCRAMP1_shControl$all$up[,c(1:3)], sep="%"))),
+  l_CRAMP1_down = unique(do.call(paste, c(atacseqkd_diffbind_limma_list$annotation$coef_shCRAMP1_shControl$all$down[,c(1:3)], sep="%"))),
+  d_CRAMP1_up = unique(do.call(paste, c(atacseqkd_diffbind_deseq2_list$annotation$shCRAMP1_shControl$all$up[,c(1:3)], sep="%"))),
+  d_CRAMP1_down = unique(do.call(paste, c(atacseqkd_diffbind_deseq2_list$annotation$shCRAMP1_shControl$all$down[,c(1:3)], sep="%"))),
+  db_e_CRAMP1_down = unique(do.call(paste, c(atacseqkd_diffbind_list$annotation$edgeR$contrast_shCRAMP1_shControl$all$up[,c(1:3)], sep="%"))),
+  db_e_CRAMP1_up = unique(do.call(paste, c(atacseqkd_diffbind_list$annotation$edgeR$contrast_shCRAMP1_shControl$all$down[,c(1:3)], sep="%"))),
+  db_d_CRAMP1_down = unique(do.call(paste, c(atacseqkd_diffbind_list$annotation$deseq2$contrast_shCRAMP1_shControl$all$up[,c(1:3)], sep="%"))),
+  db_d_CRAMP1_up = unique(do.call(paste, c(atacseqkd_diffbind_list$annotation$deseq2$contrast_shCRAMP1_shControl$all$down[,c(1:3)], sep="%")))
+)
+upset(fromList(atacseqkd_diffbind_with_packages_list_CRAMP1), order.by = "freq", nsets = 10)
+#--------------------
+t(do.call(cbind.data.frame,lapply(atacseqkd_diffbind_with_packages_list_CRAMP1, function(x) length(x))))
 
-atacseqkd_venn_packages_list_CRAMP1 <- list(
-  e_CRAMP1_up = unique(do.call(paste, c(atacseqkd_edger_list$dar_analysis$dars$coef_shCRAMP1$up[,c(1:3)], sep="%"))),
-  e_CRAMP1_down = unique(do.call(paste, c(atacseqkd_edger_list$dar_analysis$dars$coef_shCRAMP1$down[,c(1:3)], sep="%"))),
-  l_CRAMP1_up = unique(do.call(paste, c(atacseqkd_limma_list$dar_analysis$dars$coef_shCRAMP1_shControl$up[,c(1:3)], sep="%"))),
-  l_CRAMP1_down = unique(do.call(paste, c(atacseqkd_limma_list$dar_analysis$dars$coef_shCRAMP1_shControl$down[,c(1:3)], sep="%"))),
-  d_CRAMP1_up = unique(atacseqkd_deseq2_diff_list$dar_analysis$de_analysis$shCRAMP1_shControl$up$ensID_Gene),
-  d_CRAMP1_down = unique(atacseqkd_deseq2_diff_list$dar_analysis$de_analysis$shCRAMP1_shControl$down$ensID_Gene)
+
+# similar analysis for SUZ12
+#--------------------
+atacseqkd_venn_consensus_list_SUZ12 <- list(
+  e_SUZ12_up = unique(do.call(paste, c(atacseqkd_edger_list$annotation$coef_shSUZ12$all$up[,c(7:9)], sep="%"))),
+  e_SUZ12_down = unique(do.call(paste, c(atacseqkd_edger_list$annotation$coef_shSUZ12$all$down[,c(7:9)], sep="%"))),
+  l_SUZ12_up = unique(do.call(paste, c(atacseqkd_limma_list$annotation$coef_shSUZ12_shControl$all$up[,c(8:10)], sep="%"))),
+  l_SUZ12_down = unique(do.call(paste, c(atacseqkd_limma_list$annotation$coef_shSUZ12_shControl$all$down[,c(8:10)], sep="%"))),
+  d_SUZ12_up = unique(do.call(paste, c(atacseqkd_deseq2_list$annotation$shSUZ12_shControl$all$up[,c(8:10)], sep="%"))),
+  d_SUZ12_down = unique(do.call(paste, c(atacseqkd_deseq2_list$annotation$shSUZ12_shControl$all$down[,c(8:10)], sep="%")))
+)
+upset(fromList(atacseqkd_venn_consensus_list_SUZ12), order.by = "freq", nsets = 6)
+#--------------------
+
+#--------------------
+atacseqkd_diffbind_venn_packages_list_SUZ12 <- list(
+  e_SUZ12_up = unique(do.call(paste, c(atacseqkd_diffbind_edger_list$annotation$coef_shSUZ12$all$up[,c(1:3)], sep="%"))),
+  e_SUZ12_down = unique(do.call(paste, c(atacseqkd_diffbind_edger_list$annotation$coef_shSUZ12$all$down[,c(1:3)], sep="%"))),
+  l_SUZ12_up = unique(do.call(paste, c(atacseqkd_diffbind_limma_list$annotation$coef_shSUZ12_shControl$all$up[,c(1:3)], sep="%"))),
+  l_SUZ12_down = unique(do.call(paste, c(atacseqkd_diffbind_limma_list$annotation$coef_shSUZ12_shControl$all$down[,c(1:3)], sep="%"))),
+  d_SUZ12_up = unique(do.call(paste, c(atacseqkd_diffbind_deseq2_list$annotation$shSUZ12_shControl$all$up[,c(1:3)], sep="%"))),
+  d_SUZ12_down = unique(do.call(paste, c(atacseqkd_diffbind_deseq2_list$annotation$shSUZ12_shControl$all$down[,c(1:3)], sep="%")))
+)
+upset(fromList(atacseqkd_diffbind_venn_packages_list_SUZ12), order.by = "freq", nsets = 6)
+#--------------------
+
+#--------------------
+atacseqkd_diffbind_with_packages_list_SUZ12 <- list(
+  e_SUZ12_up = unique(do.call(paste, c(atacseqkd_diffbind_edger_list$annotation$coef_shSUZ12$all$up[,c(1:3)], sep="%"))),
+  e_SUZ12_down = unique(do.call(paste, c(atacseqkd_diffbind_edger_list$annotation$coef_shSUZ12$all$down[,c(1:3)], sep="%"))),
+  l_SUZ12_up = unique(do.call(paste, c(atacseqkd_diffbind_limma_list$annotation$coef_shSUZ12_shControl$all$up[,c(1:3)], sep="%"))),
+  l_SUZ12_down = unique(do.call(paste, c(atacseqkd_diffbind_limma_list$annotation$coef_shSUZ12_shControl$all$down[,c(1:3)], sep="%"))),
+  d_SUZ12_up = unique(do.call(paste, c(atacseqkd_diffbind_deseq2_list$annotation$shSUZ12_shControl$all$up[,c(1:3)], sep="%"))),
+  d_SUZ12_down = unique(do.call(paste, c(atacseqkd_diffbind_deseq2_list$annotation$shSUZ12_shControl$all$down[,c(1:3)], sep="%"))),
+  db_e_SUZ12_down = unique(do.call(paste, c(atacseqkd_diffbind_list$annotation$edgeR$contrast_shSUZ12_shControl$all$up[,c(1:3)], sep="%"))),
+  db_e_SUZ12_up = unique(do.call(paste, c(atacseqkd_diffbind_list$annotation$edgeR$contrast_shSUZ12_shControl$all$down[,c(1:3)], sep="%"))),
+  db_d_SUZ12_down = unique(do.call(paste, c(atacseqkd_diffbind_list$annotation$deseq2$contrast_shSUZ12_shControl$all$up[,c(1:3)], sep="%"))),
+  db_d_SUZ12_up = unique(do.call(paste, c(atacseqkd_diffbind_list$annotation$deseq2$contrast_shSUZ12_shControl$all$down[,c(1:3)], sep="%")))
+)
+upset(fromList(atacseqkd_diffbind_with_packages_list_SUZ12), order.by = "freq", nsets = 10)
+#--------------------
+t(do.call(cbind.data.frame,lapply(atacseqkd_diffbind_with_packages_list_SUZ12, function(x) length(x))))
+
+#-------------------------------------------
+
+
+#--------------------
+atacseqkd_diffbind_with_packages_list_CRAMP1_SUZ12 <- list(
+  e_SUZ12_up = unique(do.call(paste, c(atacseqkd_diffbind_edger_list$annotation$coef_shSUZ12$all$up[,c(1:3)], sep="%"))),
+  e_SUZ12_down = unique(do.call(paste, c(atacseqkd_diffbind_edger_list$annotation$coef_shSUZ12$all$down[,c(1:3)], sep="%"))),
+  l_SUZ12_up = unique(do.call(paste, c(atacseqkd_diffbind_limma_list$annotation$coef_shSUZ12_shControl$all$up[,c(1:3)], sep="%"))),
+  l_SUZ12_down = unique(do.call(paste, c(atacseqkd_diffbind_limma_list$annotation$coef_shSUZ12_shControl$all$down[,c(1:3)], sep="%"))),
+  d_SUZ12_up = unique(do.call(paste, c(atacseqkd_diffbind_deseq2_list$annotation$shSUZ12_shControl$all$up[,c(1:3)], sep="%"))),
+  d_SUZ12_down = unique(do.call(paste, c(atacseqkd_diffbind_deseq2_list$annotation$shSUZ12_shControl$all$down[,c(1:3)], sep="%"))),
+  db_e_SUZ12_down = unique(do.call(paste, c(atacseqkd_diffbind_list$annotation$edgeR$contrast_shSUZ12_shControl$all$up[,c(1:3)], sep="%"))),
+  db_e_SUZ12_up = unique(do.call(paste, c(atacseqkd_diffbind_list$annotation$edgeR$contrast_shSUZ12_shControl$all$down[,c(1:3)], sep="%"))),
+  db_d_SUZ12_down = unique(do.call(paste, c(atacseqkd_diffbind_list$annotation$deseq2$contrast_shSUZ12_shControl$all$up[,c(1:3)], sep="%"))),
+  db_d_SUZ12_up = unique(do.call(paste, c(atacseqkd_diffbind_list$annotation$deseq2$contrast_shSUZ12_shControl$all$down[,c(1:3)], sep="%"))),
+  e_CRAMP1_up = unique(do.call(paste, c(atacseqkd_diffbind_edger_list$annotation$coef_shCRAMP1$all$up[,c(1:3)], sep="%"))),
+  e_CRAMP1_down = unique(do.call(paste, c(atacseqkd_diffbind_edger_list$annotation$coef_shCRAMP1$all$down[,c(1:3)], sep="%"))),
+  l_CRAMP1_up = unique(do.call(paste, c(atacseqkd_diffbind_limma_list$annotation$coef_shCRAMP1_shControl$all$up[,c(1:3)], sep="%"))),
+  l_CRAMP1_down = unique(do.call(paste, c(atacseqkd_diffbind_limma_list$annotation$coef_shCRAMP1_shControl$all$down[,c(1:3)], sep="%"))),
+  d_CRAMP1_up = unique(do.call(paste, c(atacseqkd_diffbind_deseq2_list$annotation$shCRAMP1_shControl$all$up[,c(1:3)], sep="%"))),
+  d_CRAMP1_down = unique(do.call(paste, c(atacseqkd_diffbind_deseq2_list$annotation$shCRAMP1_shControl$all$down[,c(1:3)], sep="%"))),
+  db_e_CRAMP1_down = unique(do.call(paste, c(atacseqkd_diffbind_list$annotation$edgeR$contrast_shCRAMP1_shControl$all$up[,c(1:3)], sep="%"))),
+  db_e_CRAMP1_up = unique(do.call(paste, c(atacseqkd_diffbind_list$annotation$edgeR$contrast_shCRAMP1_shControl$all$down[,c(1:3)], sep="%"))),
+  db_d_CRAMP1_down = unique(do.call(paste, c(atacseqkd_diffbind_list$annotation$deseq2$contrast_shCRAMP1_shControl$all$up[,c(1:3)], sep="%"))),
+  db_d_CRAMP1_up = unique(do.call(paste, c(atacseqkd_diffbind_list$annotation$deseq2$contrast_shCRAMP1_shControl$all$down[,c(1:3)], sep="%")))
 )
 
-upset(fromList(atacseqkd_venn_packages_list_CRAMP1), order.by = "freq", nsets = 6)
+upset(fromList(atacseqkd_diffbind_with_packages_list_CRAMP1_SUZ12), order.by = "freq", nsets = 20)
+#--------------------
+#-------------------------------------------
 atacseqkd_venn_packages_list_CRAMP1_upsetobj <- Upsetout(atacseqkd_venn_packages_list_CRAMP1)
 names(atacseqkd_venn_packages_list_CRAMP1_upsetobj) <-
    gsub("_0","",gsub("0_","", names(atacseqkd_venn_packages_list_CRAMP1_upsetobj)))
@@ -1031,20 +1238,6 @@ for(i in c("e_CRAMP1_up", "l_CRAMP1_up", "e_CRAMP1_down", "l_CRAMP1_down", "d_CR
   df <- data.frame(interval=subset, category=i)
   atacseqkd_venn_packages_list_CRAMP1_df <- rbind.data.frame(atacseqkd_venn_packages_list_CRAMP1_df, df)
 }
-
-atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shCRAMP1_shControl$all["interval"] <- do.call(paste, c(atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shCRAMP1_shControl$all[,c(1:3)], sep="%"))
-atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shCRAMP1_shControl[["maplotobj"]] <- merge(atacseqkd_venn_packages_list_CRAMP1_df, atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shCRAMP1_shControl$all, by="interval", all.y=T)
-atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shCRAMP1_shControl[["maplot"]] <- fn_maplot_general(atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shCRAMP1_shControl$maplotobj, x="Conc", y="Fold", "interval")
-
-
-atacseqkd_deseq2_diff_list$dar_analysis$de_analysis$shCRAMP1_shControl$all$threshold <- as.factor(atacseqkd_deseq2_diff_list$dar_analysis$de_analysis$shCRAMP1_shControl$all$padj < 0.05)
-atacseqkd_edger_list$dar_analysis$dars$coef_shCRAMP1$all$threshold <- as.factor(atacseqkd_edger_list$dar_analysis$dars$coef_shCRAMP1$all$FDR < 0.05)
-atacseqkd_limma_list$dar_analysis$dars$coef_shCRAMP1_shControl$all$threshold <- as.factor(atacseqkd_limma_list$dar_analysis$dars$coef_shCRAMP1_shControl$all$adj.P.Val < 0.05)
-
-fn_maplot_general(atacseqkd_deseq2_diff_list$dar_analysis$de_analysis$shCRAMP1_shControl$all, x="baseMean", y="log2FoldChange", "threshold")
-fn_maplot_general(atacseqkd_edger_list$dar_analysis$dars$coef_shCRAMP1$all, x="logCPM", y="logFC", "threshold")
-fn_maplot_general(atacseqkd_limma_list$dar_analysis$dars$coef_shCRAMP1_shControl$all, x="AveExpr", y="logFC", "threshold")
-
 
 # quantify over various features
 atacseqkd_quantify_list <- list()
@@ -1154,7 +1347,7 @@ cutnrunkd_quantify_list[["featurecounts"]][["pairs"]] <- list(
 cutnrunkd_quantify_list[["featurecounts"]][["featuresmatrix"]] <- fn_quantify_featurecounts_multifeature("/mnt/home3/reid/av638/cutnrun/iva_lab_oct23/cutnrun_k27_kd/outfolder/bowtie2/mergedLibrary/", "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/integration/", "cutnrunkd", ".mLb.clN.sorted.bam", cutnrunkd_quantify_list$featurecounts$featureslist, c(4,5,1:3,6), "hg38", "shControl",pe=FALSE, diff="multi", cutnrunkd_quantify_list$featurecounts$pairs)
 
 ################################################
-###         CUT&TAG data: Wildtype  SE       ###
+###         CUT&TAG data: wildtype  SE       ###
 ################################################
 cutntagwt_quantify_list <- list()
 cutntagwt_quantify_list[["featurecounts"]] <- fn_quantify_featurecounts("/mnt/home3/reid/av638/cutntag/iva_lab_oct23/outfolder/bowtie2/mergedLibrary", "cutntagwt","\\.bam$", "\\_peaks_id.bed$","histone_marks", c(12,4,1:3,7), pairedend=FALSE, "hg38", "_",merge_sites_files=FALSE)
@@ -1187,6 +1380,18 @@ gridExtra::grid.arrange(cutntagwt_quantify_list$summed$plot$ENCFF508LLH, cutntag
 # assign genes
 cutntagwt_quantify_list[["gene"]] <- fn_read_genefile("/mnt/home3/reid/av638/cutntag/iva_lab_oct23/outfolder/bowtie2/mergedLibrary/", "gene_gencode_human_gencode_out.sorted.chr.txt")
 
+# plot heatmap
+# plot heatmap 
+cutntagwt_quantify_list$summed[["susbet_all_features_ratio"]] <- cutntagwt_quantify_list$summed$all_features_ratio[,c(2,3,7)]
+cutntagwt_quantify_list$summed[["table_afr"]] <- data.frame(tidyr::pivot_wider(cutntagwt_quantify_list$summed$susbet_all_features_ratio, names_from = sample, values_from = Ratio))
+rownames(cutntagwt_quantify_list$summed$table_afr) <- cutntagwt_quantify_list$summed$table_afr$label
+cutntagwt_quantify_list$summed$table_afr <- cutntagwt_quantify_list$summed$table_afr[,-1]
+cutntagwt_quantify_list$summed$table_afr <- cutntagwt_quantify_list$summed$table_afr - cutntagwt_quantify_list$summed$table_afr$IgG
+cutntagwt_quantify_list$summed$table_afr <- t(cutntagwt_quantify_list$summed$table_afr)
+breaksList <- seq(0, 0.05, by = 0.01)
+pheatmap::pheatmap(as.matrix(cutntagwt_quantify_list$summed$table_afr), na_col = "black",breaks = breaksList,
+                   color = colorRampPalette(c("white", "orange"))(length(breaksList)),
+                   clustering_distance_cols = "euclidean", cluster_rows = F, cluster_cols = F, clustering_method = "ward.D")
 
 # quantify over various features
 cutntagwt_quantify_list[["featurecounts"]][["featureslist"]]=list(gene_ext=c(".chr_1.5kb.txt", "gene_gencode_human_gencode_out.sorted.chr_1.5kb.txt"), bins5kb=c("hg38_5kb.txt", "hg38_5kb.txt"), bins10kb=c("hg38_10kb.txt", "hg38_10kb.txt"), promoter=c("_gencodev41_promoter.txt", "gene_gencodev41_promoter.txt"))
@@ -1198,28 +1403,62 @@ cutntagwt_quantify_list[["featurecounts"]][["featuresmatrix"]] <- fn_quantify_fe
 
 # for check if two df are exactly same and to check if fn_quantify_featurecounts_multifeature is created properly and doing the same thing as individual steps look at Check Notes
 
-################################################
-###         CUT&TAG data: wt and ko          ###
-################################################
+##############################################################
+###         CUT&TAG data: WT and KD and FLAG (PE)        ###
+##############################################################
 # ls *.fastq.gz -1 |  grep R1 | sort -k1,1 | awk -F'_' '{print $2"\t"$1"_"$2"_"$3"_"$4"_""R1""_"$6"\t"$1"_"$2"_"$3"_"$4"_""R2""_"$6}' > fastq_info.txt
 # add header vim fastq_info.txt
 # samplesheet prep for nextflow
 # Rachael told me control for the FLAG labelled samples is "FLAG_H14_old".
 # The one labelled as FLAG_old is actually the FLAG_H1.4_old sample. So I changed it
-cutntagwko_quantify_list <- list()
-cutntagwko_quantify_list[["nextflow"]][["info"]] <- data.frame(fread("/mnt/home3/reid/av638/cutntag/iva_lab_dec23/info.txt", header = T))
-cutntagwko_quantify_list[["nextflow"]][["sheet"]] <- data.frame(ID=rep(c(cutntagwko_quantify_list$nextflow$info$ID),2),
-                replicate=rep(1,length(cutntagwko_quantify_list$nextflow$info$ID) * 2),
-                group=gsub("-","_",rep(c(cutntagwko_quantify_list$nextflow$info$Sample),2)),
-                control=rep(c("shControl_IgG","shControl_IgG","","shCRAMP1_IgG","shCRAMP1_IgG","","shSUZ12_IgG","shSUZ12_IgG","","WT_IgG","WT_IgG","WT_IgG","WT_IgG","WT_IgG","","FLAG_H14_old","FLAG_H14_old","FLAG_H14_old","FLAG_H14_old","FLAG_H14_old","",""),2)
+cutntagwkd_quantify_list <- list()
+cutntagwkd_quantify_list[["nextflow"]][["info"]] <- data.frame(fread("/mnt/home3/reid/av638/cutntag/iva_lab_dec23/info.txt", header = T))
+cutntagwkd_quantify_list[["nextflow"]][["sheet"]] <- data.frame(ID=rep(c(cutntagwkd_quantify_list$nextflow$info$ID),2),
+                                                                replicate=rep(1,length(cutntagwkd_quantify_list$nextflow$info$ID) * 2),
+                                                                group=gsub("-","_",rep(c(cutntagwkd_quantify_list$nextflow$info$Sample),2)),
+                                                                control=rep(c("shControl_IgG","shControl_IgG","","shCRAMP1_IgG","shCRAMP1_IgG","","shSUZ12_IgG","shSUZ12_IgG","","WT_IgG","WT_IgG","WT_IgG","WT_IgG","WT_IgG","","FLAG_H14_old","FLAG_H14_old","FLAG_H14_old","FLAG_H14_old","FLAG_H14_old","",""),2)
 )
 
-cutntagwko_quantify_list[["nextflow"]][["fastqs"]] <- data.frame(fread("/mnt/home3/reid/av638/cutntag/iva_lab_dec23/fastq_info.txt", header = T))
-cutntagwko_quantify_list[["nextflow"]][["samplesheet"]] <- merge(cutntagwko_quantify_list$nextflow$sheet, cutntagwko_quantify_list$nextflow$fastqs, by="ID")
-cutntagwko_quantify_list$nextflow$samplesheet <- cutntagwko_quantify_list$nextflow$samplesheet %>% dplyr::distinct()
-cutntagwko_quantify_list$nextflow$samplesheet <- cutntagwko_quantify_list$nextflow$samplesheet[order(cutntagwko_quantify_list$nextflow$samplesheet$group),][,c(3,2,5,6,4)]
-write.table(cutntagwko_quantify_list$nextflow$samplesheet, "/mnt/home3/reid/av638/cutntag/iva_lab_dec23/samplesheet.csv", sep=",", col.names = T, row.names = F, quote = F, append = F)
+cutntagwkd_quantify_list[["nextflow"]][["fastqs"]] <- data.frame(fread("/mnt/home3/reid/av638/cutntag/iva_lab_dec23/fastq_info.txt", header = T))
+cutntagwkd_quantify_list[["nextflow"]][["samplesheet"]] <- merge(cutntagwkd_quantify_list$nextflow$sheet, cutntagwkd_quantify_list$nextflow$fastqs, by="ID")
+cutntagwkd_quantify_list$nextflow$samplesheet <- cutntagwkd_quantify_list$nextflow$samplesheet %>% dplyr::distinct()
+cutntagwkd_quantify_list$nextflow$samplesheet <- cutntagwkd_quantify_list$nextflow$samplesheet[order(cutntagwkd_quantify_list$nextflow$samplesheet$group),][,c(3,2,5,6,4)]
+# write.table(cutntagwkd_quantify_list$nextflow$samplesheet, "/mnt/home3/reid/av638/cutntag/iva_lab_dec23/samplesheet.csv", sep=",", col.names = T, row.names = F, quote = F, append = F)
 
+# histone marks
+cutntagwkd_quantify_list[["featurecounts"]] <- fn_quantify_featurecounts("/mnt/home3/reid/av638/cutntag/iva_lab_dec23/outfolder/02_alignment/bowtie2/target/markdup", "cutntagwkd","\\.bam$", "\\_peaks_id.bed$","histone_marks", c(12,4,1:3,7), pairedend=TRUE, "hg38", "_",merge_sites_files=FALSE)
+
+cutntagwkd_quantify_list[["bams"]] <- fn_quantify_bams("/mnt/home3/reid/av638/cutntag/iva_lab_dec23/outfolder/02_alignment/bowtie2/target/markdup", "cutntagwkd","\\.bam$")
+cutntagwkd_labelpath = "/mnt/home3/reid/av638/cutntag/iva_lab_oct23/outfolder/bowtie2/mergedLibrary/histone_marks_label.txt"
+cutntagwkd_quantify_list[["summed"]] <- fn_summedreads_per_feature(cutntagwkd_quantify_list$featurecounts$histone_marks_countmatrix, cutntagwkd_quantify_list$bams$total_reads, cutntagwkd_labelpath)
+
+# plot heatmap 
+cutntagwkd_quantify_list$summed$all_features_ratio$sample <- gsub("_R1.target.markdup.sorted.bam","",cutntagwkd_quantify_list$summed$all_features_ratio$sample)
+cutntagwkd_quantify_list$summed[["susbet_all_features_ratio"]] <- cutntagwkd_quantify_list$summed$all_features_ratio[,c(2,3,7)]
+cutntagwkd_quantify_list$summed[["table_afr"]] <- data.frame(tidyr::pivot_wider(cutntagwkd_quantify_list$summed$susbet_all_features_ratio, names_from = sample, values_from = Ratio))
+rownames(cutntagwkd_quantify_list$summed$table_afr) <- cutntagwkd_quantify_list$summed$table_afr$label
+cutntagwkd_quantify_list$summed$table_afr <- cutntagwkd_quantify_list$summed$table_afr[,-1]
+
+# for (i in c("FLAG", "WT")){
+#   if(i == "FLAG"){
+#     cutntagwkd_quantify_list$summed$table_afr <- cutntagwkd_quantify_list$summed$table_afr[grepl(i, colnames(cutntagwkd_quantify_list$summed$table_afr))] - cutntagwkd_quantify_list$summed$table_afr[["FLAG_H14_old"]]
+#   }
+# }
+
+cutntagwkd_quantify_list$summed$table_afr <- t(cutntagwkd_quantify_list$summed$table_afr)
+breaksList <- seq(0, 0.3, by = 0.01)
+pheatmap::pheatmap(as.matrix(cutntagwkd_quantify_list$summed$table_afr), na_col = "grey",breaks = breaksList,
+                   color = colorRampPalette(c("blue", "white", "orange"))(length(breaksList)),
+                   clustering_distance_cols = "euclidean", cluster_rows = T, cluster_cols = T, clustering_method = "ward.D")
+
+# z-score based 
+cutntagwkd_quantify_list$summed[["ztable_afr"]] <- data.frame(t(scale(t(cutntagwkd_quantify_list$summed$table_afr), center = TRUE, scale = TRUE)))
+pheatmap::pheatmap(cutntagwkd_quantify_list$summed$ztable_afr)
+breaksListz <- seq(-4, 4, by = 0.01)
+pheatmap::pheatmap(as.matrix(cutntagwkd_quantify_list$summed$ztable_afr), na_col = "grey",breaks = breaksListz,
+                   color = colorRampPalette(c("blue", "white", "orange"))(length(breaksListz)),
+                   clustering_distance_cols = "euclidean", cluster_rows = T, cluster_cols = T, clustering_method = "ward.D")
+                   
 # Integration of omics data
 # for gene
 data_integration_list <- list()
