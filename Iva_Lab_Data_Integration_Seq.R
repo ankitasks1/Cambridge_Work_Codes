@@ -1388,9 +1388,9 @@ rownames(cutntagwt_quantify_list$summed$table_afr) <- cutntagwt_quantify_list$su
 cutntagwt_quantify_list$summed$table_afr <- cutntagwt_quantify_list$summed$table_afr[,-1]
 cutntagwt_quantify_list$summed$table_afr <- cutntagwt_quantify_list$summed$table_afr - cutntagwt_quantify_list$summed$table_afr$IgG
 cutntagwt_quantify_list$summed$table_afr <- t(cutntagwt_quantify_list$summed$table_afr)
-breaksList <- seq(0, 0.05, by = 0.01)
+breaksList <- seq(-0.4, 0.4, by = 0.01)
 pheatmap::pheatmap(as.matrix(cutntagwt_quantify_list$summed$table_afr), na_col = "black",breaks = breaksList,
-                   color = colorRampPalette(c("white", "orange"))(length(breaksList)),
+                   color = colorRampPalette(c("blue","white", "orange"))(length(breaksList)),
                    clustering_distance_cols = "euclidean", cluster_rows = F, cluster_cols = F, clustering_method = "ward.D")
 
 # quantify over various features
@@ -1438,18 +1438,28 @@ cutntagwkd_quantify_list$summed[["susbet_all_features_ratio"]] <- cutntagwkd_qua
 cutntagwkd_quantify_list$summed[["table_afr"]] <- data.frame(tidyr::pivot_wider(cutntagwkd_quantify_list$summed$susbet_all_features_ratio, names_from = sample, values_from = Ratio))
 rownames(cutntagwkd_quantify_list$summed$table_afr) <- cutntagwkd_quantify_list$summed$table_afr$label
 cutntagwkd_quantify_list$summed$table_afr <- cutntagwkd_quantify_list$summed$table_afr[,-1]
-
-# for (i in c("FLAG", "WT")){
-#   if(i == "FLAG"){
-#     cutntagwkd_quantify_list$summed$table_afr <- cutntagwkd_quantify_list$summed$table_afr[grepl(i, colnames(cutntagwkd_quantify_list$summed$table_afr))] - cutntagwkd_quantify_list$summed$table_afr[["FLAG_H14_old"]]
-#   }
-# }
-
-cutntagwkd_quantify_list$summed$table_afr <- t(cutntagwkd_quantify_list$summed$table_afr)
-breaksList <- seq(0, 0.3, by = 0.01)
-pheatmap::pheatmap(as.matrix(cutntagwkd_quantify_list$summed$table_afr), na_col = "grey",breaks = breaksList,
-                   color = colorRampPalette(c("blue", "white", "orange"))(length(breaksList)),
-                   clustering_distance_cols = "euclidean", cluster_rows = T, cluster_cols = T, clustering_method = "ward.D")
+cutntagwkd_quantify_list$summed[["diff_table_afr"]] <- NULL
+for (i in c("FLAG", "WT", "shCRAMP1", "shSUZ12", "shControl")){
+  if(i == "FLAG"){
+    cutntagwkd_quantify_list$summed[["diff_table_afr"]][["FLAG"]] <- cutntagwkd_quantify_list$summed$table_afr[grepl(i, colnames(cutntagwkd_quantify_list$summed$table_afr))] - cutntagwkd_quantify_list$summed$table_afr[["FLAG_H14_old"]]
+  }else if(i == "WT"){
+    cutntagwkd_quantify_list$summed[["diff_table_afr"]][["WT"]] <- cutntagwkd_quantify_list$summed$table_afr[grepl(i, colnames(cutntagwkd_quantify_list$summed$table_afr))] - cutntagwkd_quantify_list$summed$table_afr[["WT_IgG"]]
+  }else if(i == "shCRAMP1"){
+    cutntagwkd_quantify_list$summed[["diff_table_afr"]][["shCRAMP1"]] <- cutntagwkd_quantify_list$summed$table_afr[grepl(i, colnames(cutntagwkd_quantify_list$summed$table_afr))] - cutntagwkd_quantify_list$summed$table_afr[["shCRAMP1_IgG"]]
+  }else if(i == "shSUZ12"){
+    cutntagwkd_quantify_list$summed[["diff_table_afr"]][["shSUZ12"]] <- cutntagwkd_quantify_list$summed$table_afr[grepl(i, colnames(cutntagwkd_quantify_list$summed$table_afr))] - cutntagwkd_quantify_list$summed$table_afr[["shSUZ12_IgG"]]
+  }else if(i == "shControl"){
+    cutntagwkd_quantify_list$summed[["diff_table_afr"]][["shControl"]] <- cutntagwkd_quantify_list$summed$table_afr[grepl(i, colnames(cutntagwkd_quantify_list$summed$table_afr))] - cutntagwkd_quantify_list$summed$table_afr[["shControl_IgG"]]
+  }
+}
+cutntagwkd_quantify_list$summed[["merged_diff_table_afr"]]<- do.call(cbind.data.frame, cutntagwkd_quantify_list$summed$diff_table_afr)
+cutntagwkd_quantify_list$summed$merged_diff_table_afr <- t(cutntagwkd_quantify_list$summed$merged_diff_table_afr)
+rownames(cutntagwkd_quantify_list$summed$merged_diff_table_afr) <- sapply(strsplit(rownames(cutntagwkd_quantify_list$summed$merged_diff_table_afr), "\\."), function(x) x[2])
+cutntagwkd_quantify_list$summed$merged_diff_table_afr <- cutntagwkd_quantify_list$summed$merged_diff_table_afr[order(rownames(cutntagwkd_quantify_list$summed$merged_diff_table_afr)),]
+breaksList <- seq(0, 0.2, by = 0.01)
+pheatmap::pheatmap(as.matrix(cutntagwkd_quantify_list$summed$merged_diff_table_afr), na_col = "grey",breaks = breaksList,
+                   color = colorRampPalette(c("white", "orange"))(length(breaksList)),
+                   clustering_distance_cols = "euclidean", cluster_rows = F, cluster_cols = F, clustering_method = "ward.D")
 
 # z-score based 
 cutntagwkd_quantify_list$summed[["ztable_afr"]] <- data.frame(t(scale(t(cutntagwkd_quantify_list$summed$table_afr), center = TRUE, scale = TRUE)))
