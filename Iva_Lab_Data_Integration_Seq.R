@@ -511,21 +511,86 @@ fn_run_chipseeker <- function(peaks_path, assaytype, txdb, org_db, peakformat){
     print(head(peaks_tempgr))
     peaks_tempgr_anno <- ChIPseeker::annotatePeak(peaks_tempgr, tssRegion=c(-1000, 1000),TxDb=txdb, annoDb=org_db)
     storelist[["gr_anno"]][[peaksfile]] <- peaks_tempgr_anno
+    storelist[["anno_df"]][[peaksfile]] <- data.frame(peaks_tempgr_anno)
     message("plotting pie, bar, disToTSS...")
-    storelist[["plotAnnoPie"]][[peaksfile]] <- plotAnnoPie(peaks_tempgr_anno)
+    storelist[["plotAnnoPie"]][[peaksfile]] <- ChIPseeker::plotAnnoPie(peaks_tempgr_anno)
   }
-  storelist[["plotAnnoBar"]] <- plotAnnoBar(storelist$gr_anno)
-  storelist[["plotDistToTSS"]] <- plotDistToTSS(storelist$gr_anno)
+  storelist[["plotAnnoBar"]] <- ChIPseeker::plotAnnoBar(storelist$gr_anno)
+  storelist[["plotDistToTSS"]] <- ChIPseeker::plotDistToTSS(storelist$gr_anno)
   message("fetaching promoter...")
-  promoter <- getPromoters(TxDb=txdb, upstream=3000, downstream=3000)
+  promoter <- ChIPseeker::getPromoters(TxDb=txdb, upstream=3000, downstream=3000)
   message("generating tagmatrix...")
-  storelist[["tagMatrixList"]] <- lapply(storelist[["gr_obj"]], getTagMatrix, windows=promoter)
+  storelist[["tagMatrixList"]] <- lapply(storelist[["gr_obj"]], ChIPseeker::getTagMatrix, windows=promoter)
   message("plotting average plot...")
-  storelist[["plotAvgProf"]] <- plotAvgProf(storelist[["tagMatrixList"]], xlim=c(-3000, 3000), conf=0.95,resample=500, facet="row")
-  storelist[["plotPeakProf2"]] <- plotPeakProf2(storelist[["gr_obj"]], upstream = 3000, downstream = 3000, conf = 0.95,by = "gene", type = "start_site", TxDb = txdb, facet = "row", nbin = 800)
+  storelist[["plotAvgProf"]] <- ChIPseeker::plotAvgProf(storelist[["tagMatrixList"]], xlim=c(-3000, 3000), conf=0.95,resample=500, facet="row")
+  storelist[["plotPeakProf2"]] <- ChIPseeker::plotPeakProf2(storelist[["gr_obj"]], upstream = 3000, downstream = 3000, conf = 0.95,by = "gene", type = "start_site", TxDb = txdb, facet = "row", nbin = 800)
   return(storelist)
 }
 
+fn_chipseeker_region_anno <- function(assaytype, software, contrasts, region_bed, path, txdb, org_db, regionformat, fdr, fc){
+  message("writing region bed data...", regionformat)
+  write.table(region_bed, paste0(path, "/", assaytype, "_chipseeker_", software, "_", regionformat), sep="\t", quote = F, append = F, row.names = F, col.names = F)
+  regionlist <- list()
+  regionfiles <- list.files(path=path, pattern = paste0("_chipseeker_", software, "_", regionformat))
+  for (regionfile in regionfiles){
+    message("Region file in analysis: ",regionfile)
+    message("reading region file...")
+    region_temp <- read.table(paste0(path, regionfile), header = F)
+    message("making GRanges object...")
+    region_tempgr <- makeGRangesFromDataFrame(region_temp,keep.extra.columns=TRUE, seqnames.field=c("V1"),start.field=c("V2"),end.field=c("V3"))
+    regionlist[["gr_obj"]][[regionfile]] <- region_tempgr
+    message("annotating peaks...")
+    region_tempgr_anno <- ChIPseeker::annotatePeak(region_tempgr, tssRegion=c(-1000, 1000),TxDb=txdb, annoDb=org_db)
+    regionlist[["gr_anno"]][[regionfile]] <- region_tempgr_anno
+    regionlist[["anno_df"]][[regionfile]] <- data.frame(region_tempgr_anno)
+  }
+  region_to_gene <- regionlist[["anno_df"]][[regionfile]]
+  contrastlist <- list() # create empty list to store ALL contrast data
+  contrastlist[["region"]] <- regionlist
+  for (i in names(contrasts)){
+    print(i)
+    all_df <- data.frame(contrasts[[i]][["all"]])
+    message("annotation to region bed file ...")
+    all_anno <- merge(all_df, region_to_gene, by.x="feature_id", by.y="V4")
+    storelist <- list() # create empty list to store EACH contrast data
+    storelist[["all"]][["all"]] <- all_anno
+
+    message("getting peaks nearest distance to genes...")
+    nearest_distance = 5000
+    all_anno_nearest <- all_anno %>% dplyr::filter(distanceToTSS < nearest_distance & distanceToTSS > -nearest_distance)
+    storelist[["nearest"]][["all"]] <- all_anno_nearest
+    if (software == "deseq2"){
+      message(paste0("package used: ", software))
+      storelist[["nearest"]][["de"]] <- all_anno_nearest %>% dplyr::filter(padj < fdr & (log2FoldChange > log(fc,2) | log2FoldChange < -log(fc,2)))
+      storelist[["nearest"]][["up"]] <- all_anno_nearest %>% dplyr::filter(padj < fdr & (log2FoldChange > log(fc,2)))
+      storelist[["nearest"]][["down"]] <- all_anno_nearest %>% dplyr::filter(padj < fdr & (log2FoldChange < -log(fc,2)))
+      storelist[["all"]][["de"]] <- all_anno %>% dplyr::filter(padj < fdr & (log2FoldChange > log(fc,2) | log2FoldChange < -log(fc,2)))
+      storelist[["all"]][["up"]] <- all_anno %>% dplyr::filter(padj < fdr & (log2FoldChange > log(fc,2)))
+      storelist[["all"]][["down"]] <- all_anno %>% dplyr::filter(padj < fdr & (log2FoldChange < -log(fc,2)))
+      contrastlist[["contrasts"]][[i]] <- storelist
+    }else if (software == "edger") {
+      message(paste0("package used: ", software))
+      storelist[["nearest"]][["de"]] <- all_anno_nearest %>% dplyr::filter(FDR < fdr & (logFC > log(fc,2) | logFC < -log(fc,2)))
+      storelist[["nearest"]][["up"]] <- all_anno_nearest %>% dplyr::filter(FDR < fdr & (logFC > log(fc,2)))
+      storelist[["nearest"]][["down"]] <- all_anno_nearest %>% dplyr::filter(FDR < fdr & (logFC < -log(fc,2)))
+      storelist[["all"]][["de"]] <- all_anno %>% dplyr::filter(FDR < fdr & (logFC > log(fc,2) | logFC < -log(fc,2)))
+      storelist[["all"]][["up"]] <- all_anno %>% dplyr::filter(FDR < fdr & (logFC > log(fc,2)))
+      storelist[["all"]][["down"]] <- all_anno %>% dplyr::filter(FDR < fdr & (logFC < -log(fc,2)))
+      contrastlist[["contrasts"]][[i]] <- storelist
+    }else if (software == "limma") {
+      message(paste0("package used: ", software))
+      storelist[["nearest"]][["de"]] <- all_anno_nearest %>% dplyr::filter(adj.P.Val < fdr & (logFC > log(fc,2) | logFC < -log(fc,2)))
+      storelist[["nearest"]][["up"]] <- all_anno_nearest %>% dplyr::filter(adj.P.Val < fdr & (logFC > log(fc,2)))
+      storelist[["nearest"]][["down"]] <- all_anno_nearest %>% dplyr::filter(adj.P.Val < fdr & (logFC < -log(fc,2)))
+      storelist[["all"]][["de"]] <- all_anno %>% dplyr::filter(adj.P.Val < fdr & (logFC > log(fc,2) | logFC < -log(fc,2)))
+      storelist[["all"]][["up"]] <- all_anno %>% dplyr::filter(adj.P.Val < fdr & (logFC > log(fc,2)))
+      storelist[["all"]][["down"]] <- all_anno %>% dplyr::filter(adj.P.Val < fdr & (logFC < -log(fc,2)))
+      contrastlist[["contrasts"]][[i]] <- storelist
+    }
+  }
+  return(contrastlist)
+}
+# names=c("chr", "start", "end", "feature_id")
 # quantify per feature in a given interval using bedtools coverage
 # peaks_path = 
 # bamfile = "\\.name\\.bam$"
@@ -837,6 +902,8 @@ atacseqkd_deseq2_list[["dar_analysis"]] <- fn_deseq2(atacseqkd_deseq2_list$proce
 # get positions of dars
 atacseqkd_deseq2_list[["annotation"]] <- fn_consensus_gene_anno("atacseqkd", "deseq2", atacseqkd_deseq2_list$dar_analysis$de_analysis, atacseqkd_deseq2_list$consensus, atacseqkd_deseq2_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt", 0.05, 2)
 
+atacseqkd_deseq2_list[["chipseeker"]][["annotation"]] <- fn_chipseeker_region_anno("atacseqkd", "deseq2", atacseqkd_deseq2_list$dar_analysis$de_analysis, atacseqkd_deseq2_list$consensus[,c(1:4)], "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/", TxDb.Hsapiens.UCSC.hg38.knownGene, "org.Hs.eg.db", "region_bed.txt", 0.05, 2) 
+
 atacseqkd_deseq2_list$dar_analysis$de_analysis$shCRAMP1_shControl[["maplot"]] <- fn_maplot(atacseqkd_deseq2_list$dar_analysis$de_analysis$shCRAMP1_shControl$all, c(1,2,6,7), 0.05, 2)
 atacseqkd_deseq2_list$dar_analysis$de_analysis$shSUZ12_shControl[["maplot"]] <- fn_maplot(atacseqkd_deseq2_list$dar_analysis$de_analysis$shSUZ12_shControl$all, c(1,2,6,7), 0.05, 2)
 
@@ -881,7 +948,8 @@ atacseqkd_edger_list[["consensus"]] <- data.frame(fread("/mnt/home3/reid/av638/a
 
 atacseqkd_edger_list[["annotation"]] <- fn_consensus_gene_anno("atacseqkd", "edger", atacseqkd_edger_list$dar_analysis$dars, atacseqkd_edger_list$consensus, atacseqkd_edger_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt", 0.05, 2)
 
-# atacseqkd_edger_list[["chipseeker"]] <- fn_run_chipseeker("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/macs2/broad_peak/", "atacseqkd", TxDb.Hsapiens.UCSC.hg38.knownGene, "org.Hs.eg.db", "*.broadPeak")
+# atacseqkd_edger_list[["chipseeker"]][["plots"]] <- fn_run_chipseeker("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/macs2/broad_peak/", "atacseqkd", TxDb.Hsapiens.UCSC.hg38.knownGene, "org.Hs.eg.db", "*.broadPeak")
+atacseqkd_edger_list[["chipseeker"]][["annotation"]] <- fn_chipseeker_region_anno("atacseqkd", "edger", atacseqkd_edger_list$dar_analysis$dars, atacseqkd_edger_list$consensus[,c(1:4)], "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/", TxDb.Hsapiens.UCSC.hg38.knownGene, "org.Hs.eg.db", "region_bed.txt", 0.05, 2) 
 
 atacseqkd_edger_list$dar_analysis$dars$coef_shCRAMP1[["maplot"]] <- fn_maplot(atacseqkd_edger_list$dar_analysis$dars$coef_shCRAMP1$all, c(2,1,5,6), 0.05, 2)
 atacseqkd_edger_list$dar_analysis$dars$coef_shSUZ12[["maplot"]] <- fn_maplot(atacseqkd_edger_list$dar_analysis$dars$coef_shSUZ12$all, c(2,1,5,6), 0.05, 2)
@@ -932,6 +1000,8 @@ atacseqkd_limma_list[["dar_analysis"]] <- fn_limma_de(atacseqkd_limma_list$dge_o
 atacseqkd_limma_list[["consensus"]] <- data.frame(fread("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/macs2/broad_peak/consensus/consensus_peaks.mLb.clN.bed"))
 # scaffolds with non-chr annotation wil be filtered
 atacseqkd_limma_list[["annotation"]] <- fn_consensus_gene_anno("atacseqkd", "limma", atacseqkd_limma_list$dar_analysis$dars,atacseqkd_limma_list$consensus, atacseqkd_limma_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt", 0.05, 2)
+
+atacseqkd_limma_list[["chipseeker"]][["annotation"]] <- fn_chipseeker_region_anno("atacseqkd", "limma", atacseqkd_limma_list$dar_analysis$dars, atacseqkd_limma_list$consensus[,c(1:4)], "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/", TxDb.Hsapiens.UCSC.hg38.knownGene, "org.Hs.eg.db", "region_bed.txt", 0.05, 2) 
 
 # Create MA plot
 atacseqkd_limma_list$dar_analysis$dars$coef_shCRAMP1_shControl[["maplot"]] <- fn_maplot_general(atacseqkd_limma_list$dar_analysis$dars$coef_shCRAMP1_shControl$all, c(2,1,5,7), 0.05, 1)
@@ -989,10 +1059,10 @@ atacseqkd_diffbind_list[["annotation"]][["edgeR"]] <- fn_diffbind_gene_anno("ata
 atacseqkd_diffbind_list[["annotation"]][["deseq2"]] <- fn_diffbind_gene_anno("atacseqkd", "diffbind",atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts, atacseqkd_diffbind_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt", 0.05, 2)
 
 # Create MA plot
-atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shCRAMP1_shControl[["maplot"]] <- fn_maplot(atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shCRAMP1_shControl$all, c(6,9,11,12), 0.05, 1)
-atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shSUZ12_shControl[["maplot"]] <- fn_maplot(atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shSUZ12_shControl$all, c(6,9,11,12), 0.05, 1)
-atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts$contrast_shCRAMP1_shControl[["maplot"]] <- fn_maplot(atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts$contrast_shCRAMP1_shControl$all, c(6,9,11,12), 0.05, 1)
-atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts$contrast_shSUZ12_shControl[["maplot"]] <- fn_maplot(atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts$contrast_shSUZ12_shControl$all, c(6,9,11,12), 0.05, 1)
+atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shCRAMP1_shControl[["maplot"]] <- fn_maplot(atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shCRAMP1_shControl$all, c(6,9,11,12), 0.05, 2)
+atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shSUZ12_shControl[["maplot"]] <- fn_maplot(atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shSUZ12_shControl$all, c(6,9,11,12), 0.05, 2)
+atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts$contrast_shCRAMP1_shControl[["maplot"]] <- fn_maplot(atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts$contrast_shCRAMP1_shControl$all, c(6,9,11,12), 0.05, 2)
+atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts$contrast_shSUZ12_shControl[["maplot"]] <- fn_maplot(atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts$contrast_shSUZ12_shControl$all, c(6,9,11,12), 0.05, 2)
 
 write.table(atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shCRAMP1_shControl$de[,c(1:3,9,11:12)] %>% distinct(), "atacseqkd_diffbind_e_shCRAMP1_shControl_de.bed", sep="\t", quote = F, append = F, row.names = F, col.names = F)
 write.table(atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shSUZ12_shControl$de[,c(1:3,9,11:12)] %>% distinct(), "atacseqkd_diffbind_e_shSUZ12_shControl_de.bed", sep="\t", quote = F, append = F, row.names = F, col.names = F)
@@ -1393,6 +1463,8 @@ pheatmap::pheatmap(as.matrix(cutntagwt_quantify_list$summed$table_afr), na_col =
                    color = colorRampPalette(c("blue","white", "orange"))(length(breaksList)),
                    clustering_distance_cols = "euclidean", cluster_rows = F, cluster_cols = F, clustering_method = "ward.D")
 
+write.table(cutntagwt_quantify_list$summed$all_features, "cutntagwt_histonemarks_all_features.txt", sep="\t", quote = F, append = F, row.names = F, col.names = T)
+
 # quantify over various features
 cutntagwt_quantify_list[["featurecounts"]][["featureslist"]]=list(gene_ext=c(".chr_1.5kb.txt", "gene_gencode_human_gencode_out.sorted.chr_1.5kb.txt"), bins5kb=c("hg38_5kb.txt", "hg38_5kb.txt"), bins10kb=c("hg38_10kb.txt", "hg38_10kb.txt"), promoter=c("_gencodev41_promoter.txt", "gene_gencodev41_promoter.txt"))
 cutntagwt_quantify_list[["featurecounts"]][["featureslist"]][["selected_rkd_groups"]] <-  c("_rkd_gene_groups.txt", "selected_rkd_gene_groups.txt")
@@ -1438,6 +1510,9 @@ cutntagwkd_quantify_list$summed[["susbet_all_features_ratio"]] <- cutntagwkd_qua
 cutntagwkd_quantify_list$summed[["table_afr"]] <- data.frame(tidyr::pivot_wider(cutntagwkd_quantify_list$summed$susbet_all_features_ratio, names_from = sample, values_from = Ratio))
 rownames(cutntagwkd_quantify_list$summed$table_afr) <- cutntagwkd_quantify_list$summed$table_afr$label
 cutntagwkd_quantify_list$summed$table_afr <- cutntagwkd_quantify_list$summed$table_afr[,-1]
+write.table(cutntagwkd_quantify_list$summed$all_features, "cutntagwkd_histonemarks_all_features.txt", sep="\t", quote = F, append = F, row.names = F, col.names = T)
+
+
 cutntagwkd_quantify_list$summed[["diff_table_afr"]] <- NULL
 for (i in c("FLAG", "WT", "shCRAMP1", "shSUZ12", "shControl")){
   if(i == "FLAG"){
@@ -1461,14 +1536,13 @@ pheatmap::pheatmap(as.matrix(cutntagwkd_quantify_list$summed$merged_diff_table_a
                    color = colorRampPalette(c("white", "orange"))(length(breaksList)),
                    clustering_distance_cols = "euclidean", cluster_rows = F, cluster_cols = F, clustering_method = "ward.D")
 
-# z-score based 
-cutntagwkd_quantify_list$summed[["ztable_afr"]] <- data.frame(t(scale(t(cutntagwkd_quantify_list$summed$table_afr), center = TRUE, scale = TRUE)))
-pheatmap::pheatmap(cutntagwkd_quantify_list$summed$ztable_afr)
-breaksListz <- seq(-4, 4, by = 0.01)
-pheatmap::pheatmap(as.matrix(cutntagwkd_quantify_list$summed$ztable_afr), na_col = "grey",breaks = breaksListz,
-                   color = colorRampPalette(c("blue", "white", "orange"))(length(breaksListz)),
-                   clustering_distance_cols = "euclidean", cluster_rows = T, cluster_cols = T, clustering_method = "ward.D")
-                   
+
+corrplot::corrplot(cor(cutntagwkd_quantify_list$summed$merged_diff_table_afr))
+cutntagwkd_quantify_list$summed[["pca"]] <- prcomp(cutntagwkd_quantify_list$summed$merged_diff_table_afr, center = TRUE, scale. = TRUE) 
+biplot(cutntagwkd_quantify_list$summed$pca)
+factoextra::fviz_pca_ind(cutntagwkd_quantify_list$summed$pca, geom = c("point", "text"))
+
+
 # Integration of omics data
 # for gene
 data_integration_list <- list()
