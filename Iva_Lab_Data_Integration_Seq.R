@@ -726,6 +726,18 @@ fn_aggregate_feature <- function(annomatrix, columnstoaggregate, aggreagtebycolu
   storelist[["aggregated"]] <- stats::aggregate(annomatrix[,columnstoaggregate], by=list(annomatrix[[aggreagtebycolumn]]), operation)
   return(storelist)
 }
+
+fn_make_pca <- function(counts, file_extension, attribute){
+  storelist <- list()
+  message("filtering the counts for zero rowsums...")
+  storelist[["norm_counts_filtered"]] <- counts[rowSums(counts) > 0,]
+  colnames(storelist$norm_counts_filtered) <- gsub(file_extension,"", colnames(storelist$norm_counts_filtered))
+  message("generating pca")
+  storelist[["prcomp"]] <- prcomp(t(storelist$norm_counts_filtered), center = TRUE, scale. = TRUE)
+  storelist[[attribute]] <- factoextra::fviz_pca_ind(storelist$prcomp, geom = c("point", "text"), repel = TRUE)
+  return(storelist)
+}
+
 # integrate multiple omics data on featurecounts
 fn_integrate_featurecounts <- function(inputlist, sharedcolumn){
   storelist <- list()
@@ -1126,6 +1138,10 @@ write.table(atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shSUZ1
 write.table(atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts$contrast_shCRAMP1_shControl$de[,c(1:3,9,11:12)] %>% distinct(), "atacseqkd_diffbind_d_shCRAMP1_shControl_de.bed", sep="\t", quote = F, append = F, row.names = F, col.names = F)
 write.table(atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts$contrast_shSUZ12_shControl$de[,c(1:3,9,11:12)] %>% distinct(), "atacseqkd_diffbind_d_shSUZ12_shControl_de.bed", sep="\t", quote = F, append = F, row.names = F, col.names = F)
 
+# extract dars in specified format
+write.table(cbind(atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts$contrast_shCRAMP1_shControl$de[,c(1:3,12)] %>% distinct(), dars="dars", strand="."), "atacseqkd_diffbind_d_shCRAMP1_shControl_de_re.bed", sep="\t", quote = F, append = F, row.names = F, col.names = F)
+write.table(cbind(atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts$contrast_shSUZ12_shControl$de[,c(1:3,12)] %>% distinct(), dars="dars", strand="."), "atacseqkd_diffbind_d_shSUZ12_shControl_de_re.bed", sep="\t", quote = F, append = F, row.names = F, col.names = F)
+
 # Overlap between cramp1 and suz12 target intervals
 # Venn diagram
 list_atacseqkd_diffbind_e_de_shCRAMP1_vs_shSUZ12 <- list(shCRAMP1 = unique(atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shCRAMP1_shContro$de$feature_id), shSUZ12=unique(atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shSUZ12_shControl$de$feature_id))
@@ -1420,6 +1436,11 @@ cutnrunko_quantify_list[["featurecounts"]][["featureslist"]][["selected_rkd_uniq
 cutnrunko_quantify_list[["featurecounts"]][["pairs"]] <- list(H3K27me3_KO1_IgG=c("H3K27me3_KO1.mLb.clN.sorted.bam", "IgG_KO1.mLb.clN.sorted.bam"), H3K27me3_KO2_IgG=c("H3K27me3_KO2.mLb.clN.sorted.bam", "IgG_KO2.mLb.clN.sorted.bam"), H3K27me3_KO3_IgG=c("H3K27me3_KO3.mLb.clN.sorted.bam", "IgG_KO3.mLb.clN.sorted.bam"), H3K27me3_WT_IgG=c("H3K27me3_WT.mLb.clN.sorted.bam", "IgG_WT.mLb.clN.sorted.bam"))
 cutnrunko_quantify_list[["featurecounts"]][["featuresmatrix"]] <- fn_quantify_featurecounts_multifeature("/mnt/home3/reid/av638/cutnrun/iva_lab_oct23/cutnrun_k27_ko/outfolder/bowtie2/mergedLibrary/", "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/integration/", "cutnrunko", ".mLb.clN.sorted.bam", cutnrunko_quantify_list$featurecounts$featureslist, c(4,5,1:3,6), "hg38", "IgG",pe=FALSE, diff="multi", cutnrunko_quantify_list$featurecounts$pairs)
 
+# quantify overs atacseq dars
+cutnrunko_quantify_list[["featurecounts"]][["atacseqdars"]] <- list(shCRAMP1_shControl=c("_diffbind_d_shCRAMP1_shControl_de_re.bed", "atacseqkd_diffbind_d_shCRAMP1_shControl_de_re.bed"), shSUZ12_shControl=c("_diffbind_d_shSUZ12_shControl_de_re.bed", "atacseqkd_diffbind_d_shSUZ12_shControl_de_re.bed"))
+cutnrunko_quantify_list[["featurecounts"]][["pairs"]] <- list(H3K27me3_KO1_IgG=c("H3K27me3_KO1.mLb.clN.sorted.bam", "IgG_KO1.mLb.clN.sorted.bam"), H3K27me3_KO2_IgG=c("H3K27me3_KO2.mLb.clN.sorted.bam", "IgG_KO2.mLb.clN.sorted.bam"), H3K27me3_KO3_IgG=c("H3K27me3_KO3.mLb.clN.sorted.bam", "IgG_KO3.mLb.clN.sorted.bam"), H3K27me3_WT_IgG=c("H3K27me3_WT.mLb.clN.sorted.bam", "IgG_WT.mLb.clN.sorted.bam"))
+cutnrunko_quantify_list[["featurecounts"]][["darsmatrix"]] <- fn_quantify_featurecounts_multifeature("/mnt/home3/reid/av638/cutnrun/iva_lab_oct23/cutnrun_k27_ko/outfolder/bowtie2/mergedLibrary/", "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/integration/", "cutnrunko", ".mLb.clN.sorted.bam", cutnrunko_quantify_list$featurecounts$atacseqdars, c(5,4,1:3,6), "hg38", "IgG",pe=FALSE, diff="multi", cutnrunko_quantify_list$featurecounts$pairs)
+
 ################################################
 ###         CUT&RUN data: Knockdown          ###
 ################################################
@@ -1600,14 +1621,6 @@ cutntagwkd_quantify_list$summed[["pca"]] <- prcomp(cutntagwkd_quantify_list$summ
 biplot(cutntagwkd_quantify_list$summed$pca)
 factoextra::fviz_pca_ind(cutntagwkd_quantify_list$summed$pca, geom = c("point", "text"))
 
-# bins_5kb
-cutntagwkd_quantify_list[["featurecounts"]][["bins_5kb"]] <- fn_quantify_featurecounts("/mnt/home3/reid/av638/cutntag/iva_lab_dec23/outfolder/02_alignment/bowtie2/target/markdup/", "cutntagwkd","\\.bam$", "\\hg38_5kb.txt$","bins5kb", c(4,5,1:3,6), pairedend=TRUE, "hg38", "_",merge_sites_files=FALSE)
-cutntagwkd_quantify_list$featurecounts$bins_5kb$bins5kb_countmatrix$hg38_5kb.txt[["counts_filtered"]] <- cutntagwkd_quantify_list$featurecounts$bins_5kb$bins5kb_countmatrix$hg38_5kb.txt$counts[rowSums(cutntagwkd_quantify_list$featurecounts$bins_5kb$bins5kb_countmatrix$hg38_5kb.txt$counts) > 0,]
-cutntagwkd_quantify_list$featurecounts$bins_5kb$bins5kb_countmatrix$hg38_5kb.txt[["cpm"]] <- edgeR::cpm(cutntagwkd_quantify_list$featurecounts$bins_5kb$bins5kb_countmatrix$hg38_5kb.txt$counts_filtered)
-colnames(cutntagwkd_quantify_list$featurecounts$bins_5kb$bins5kb_countmatrix$hg38_5kb.txt$cpm) <- gsub("_R1.target.markdup.sorted.bam","", colnames(cutntagwkd_quantify_list$featurecounts$bins_5kb$bins5kb_countmatrix$hg38_5kb.txt$cpm))
-cutntagwkd_quantify_list$featurecounts$bins_5kb$bins5kb_countmatrix$hg38_5kb.txt[["pca"]] <- prcomp(t(cutntagwkd_quantify_list$featurecounts$bins_5kb$bins5kb_countmatrix$hg38_5kb.txt$cpm), center = TRUE, scale. = TRUE) 
-factoextra::fviz_pca_ind(cutntagwkd_quantify_list$featurecounts$bins_5kb$bins5kb_countmatrix$hg38_5kb.txt$pca, geom = c("point", "text"))
-
 # quantify over various features
 cutntagwkd_quantify_list[["featurecounts"]][["featureslist"]]=list(gene_ext=c(".chr_1.5kb.txt", "gene_gencode_human_gencode_out.sorted.chr_1.5kb.txt"), bins5kb=c("hg38_5kb.txt", "hg38_5kb.txt"), bins10kb=c("hg38_10kb.txt", "hg38_10kb.txt"), promoter=c("_gencodev41_promoter.txt", "gene_gencodev41_promoter.txt"))
 cutntagwkd_quantify_list[["featurecounts"]][["featureslist"]][["selected_rkd_groups"]] <-  c("_rkd_gene_groups.txt", "selected_rkd_gene_groups.txt")
@@ -1623,9 +1636,15 @@ cutntagwkd_quantify_list[["featurecounts"]][["featuresmatrix"]] <-
                                          cutntagwkd_quantify_list$featurecounts$featureslist, c(4,5,1:3,6), "hg38", "IgG",pe=TRUE, diff="multi", 
                                          cutntagwkd_quantify_list$featurecounts$pairs)
 
+cutntagwkd_quantify_list$featurecounts$featuresmatrix$bins5kb$bins5kb_countmatrix$hg38_5kb.txt[["cpm"]] <- edgeR::cpm(cutntagwkd_quantify_list$featurecounts$featuresmatrix$bins5kb$bins5kb_countmatrix$hg38_5kb.txt$counts)
+cutntagwkd_quantify_list$featurecounts$featuresmatrix$bins5kb[["pca_counts"]] <- fn_make_pca(cutntagwkd_quantify_list$featurecounts$featuresmatrix$bins5kb$bins5kb_countmatrix$hg38_5kb.txt$cpm, "_R1.target.markdup.sorted.bam", "pca")
+
+cutntagwkd_quantify_list$featurecounts$featuresmatrix$bins5kb[["pca_diff"]] <- fn_make_pca(cutntagwkd_quantify_list$featurecounts$featuresmatrix$bins5kb$log_normalized_counts[,c(23:38)], "_R1.target.markdup.sorted.bam", "pca")
+
 # Integration of omics data
-# for gene
 data_integration_list <- list()
+
+# for gene
 data_integration_list[["ensID_gene"]][["list"]] <- 
   list(rnaseqkd_list$deseq2$de_analysis$shC1_c1509$de %>% select(r_shC1=2, ensID_Gene=7),
        rnaseqkd_list$deseq2$de_analysis$shS_c1509$de %>% select(r_shS=2, ensID_Gene=7),
@@ -1633,7 +1652,8 @@ data_integration_list[["ensID_gene"]][["list"]] <-
        atacseqkd_deseq2_list$aggregate_pergene$shSUZ12_shControl$nearest$de$aggregated %>% select(a_shSUZ12=2, ensID_Gene=1),
        cutnrunko_deseq2_list$aggregate_pergene$KO_WT$nearest$de$aggregated %>% select(cko_KO=2, ensID_Gene=1),
        cutnrunkd_deseq2_list$aggregate_pergene$nearest$log_sum_counts[,c(4:6)],
-       cutntagwt_quantify_list$featurecounts$gene_ext$log_normalized_counts[,c(7:10)])
+       cutntagwt_quantify_list$featurecounts$gene_ext$log_normalized_counts[,c(7:10)],
+       cutntagwkd_quantify_list$featurecounts$featuresmatrix$gene_ext$log_normalized_counts %>% dplyr::select(23:38, ensID_Gene=39))
 
 data_integration_list[["ensID_gene"]][["merged"]] <- fn_integrate_featurecounts(data_integration_list$ensID_gene$list, "ensID_Gene")
 
@@ -1644,10 +1664,37 @@ data_integration_list$ensID_gene$merged[["somepredictable"]] <- data_integration
 data_integration_list$ensID_gene$merged[["Heatmap"]][["somepredictable"]][["mat1"]] <- ComplexHeatmap::Heatmap(as.matrix(data_integration_list$ensID_gene$merged$somepredictable[,c(1:5)]), na_col = "yellow", row_names_gp = gpar(fontsize = 5), cluster_columns = FALSE, col = col_fun)
 data_integration_list$ensID_gene$merged[["Heatmap"]][["somepredictable"]][["mat2"]] <- ComplexHeatmap::Heatmap(as.matrix(data_integration_list$ensID_gene$merged$somepredictable[,c(6:7)]), na_col = "yellow", row_names_gp = gpar(fontsize = 5), cluster_columns = FALSE, col = col_fun2)
 data_integration_list$ensID_gene$merged[["Heatmap"]][["somepredictable"]][["mat3"]] <- ComplexHeatmap::Heatmap(as.matrix(data_integration_list$ensID_gene$merged$somepredictable[,c(8:10)]), na_col = "yellow", row_names_gp = gpar(fontsize = 5), cluster_columns = FALSE, col = col_fun)
+data_integration_list$ensID_gene$merged[["Heatmap"]][["somepredictable"]][["mat4"]] <- ComplexHeatmap::Heatmap(as.matrix(data_integration_list$ensID_gene$merged$somepredictable[,c(11:26)]), na_col = "yellow", row_names_gp = gpar(fontsize = 5), cluster_columns = FALSE, col = col_fun)
 
-data_integration_list$ensID_gene$merged[["Heatmap"]][["somepredictable"]][["mat1"]]+ data_integration_list$ensID_gene$merged[["Heatmap"]][["somepredictable"]][["mat2"]] + data_integration_list$ensID_gene$merged[["Heatmap"]][["somepredictable"]][["mat3"]]
+data_integration_list$ensID_gene$merged[["Heatmap"]][["somepredictable"]][["mat1"]]+ data_integration_list$ensID_gene$merged[["Heatmap"]][["somepredictable"]][["mat2"]] + data_integration_list$ensID_gene$merged[["Heatmap"]][["somepredictable"]][["mat3"]] + data_integration_list$ensID_gene$merged[["Heatmap"]][["somepredictable"]][["mat4"]]
 
-#complex_heatmap_data_integration_list$ensID_gene$merged$df_somepredictable_ch.pdf
+#complex_heatmap_data_integration_list_ensID_gene_merged_df_somepredictable_ch.pdf
+
+data_integration_list$ensID_gene$merged[["pca"]][["somepredictable"]]  <- fn_make_pca(data_integration_list$ensID_gene$merged$df, "none", "pca")
+
+# for bins5kb from featurecounts
+data_integration_list[["bins5kb"]][["list"]] <- 
+  list(atacseqkd_quantify_list$featurecounts$featuresmatrix$bins5kb$log_normalized_counts %>% dplyr::select(7:10, bins5kb=11),
+       cutnrunko_quantify_list$featurecounts$featuresmatrix$bins5kb$log_normalized_counts %>% dplyr::select(9:12, bins5kb=13),
+       cutnrunkd_quantify_list$featurecounts$featuresmatrix$bins5kb$log_normalized_counts %>% dplyr::select(7:9, bins5kb=10),
+       cutntagwt_quantify_list$featurecounts$featuresmatrix$bins5kb$log_normalized_counts %>% dplyr::select(5:7, bins5kb=8),
+       cutntagwkd_quantify_list$featurecounts$featuresmatrix$bins5kb$log_normalized_counts %>% dplyr::select(23:38, bins5kb=39))
+
+data_integration_list[["bins5kb"]][["merged"]] <- fn_integrate_featurecounts(data_integration_list$bins5kb$list, "bins5kb")
+
+# PCA on bins of subset of samples using bins5kb diff counts
+data_integration_list$bins5kb$merged[["bin_prcomp"]] <- prcomp(data_integration_list$bins5kb$merged$df[,c(1:4)], center = TRUE, scale. = TRUE)
+
+data_integration_list$bins5kb$merged[["bin_pca"]] <- factoextra::fviz_pca_ind(data_integration_list$bins5kb$merged$bin_prcomp, geom = c("point"))
+
+
+factoextra::fviz_pca_ind(data_integration_list$bins5kb$merged$bin_prcomp, 
+             geom = c("point"), 
+             col.ind = "contrib",  # Color by loadings
+             gradient.cols = c("blue", "green"),  # Color gradient
+             pointsize = 0.1,  # Reduce point size based on loadings
+             title = "PCA Plot with Loadings Color and Reduced Point Size")
+
 # for bins from bedtools coverage
 intergration_omics_list <- list()
 bin_cov_atacseq_path <- list.files(path="/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library", pattern = "*.txt_coverage.pe.bed", full.names = T)
