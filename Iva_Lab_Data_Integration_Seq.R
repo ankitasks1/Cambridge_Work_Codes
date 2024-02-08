@@ -843,6 +843,7 @@ fn_meta_plot <- function(featurematrix, columnstoplot, multi=FALSE, value="value
     message("plotting meta plots for ",i)
     if (mean(sapply(strsplit(as.character(df_st$row), "%"), function(x) length(x))) <= 2){
       message("no name splitting required for ", i)
+      storelist[[i]][["df"]] <- df
       storelist[[i]][["df_st"]] <- df_st
       storelist[[i]][["meta_plot"]] <- ggplot(df_st, aes_string(x=value, color=color, linetype=color)) + geom_density() +
         scale_linetype_manual(values = c(rep("solid",rep),rep("longdash",rep), rep("dashed",rep),rep("dotted",rep))) +
@@ -850,6 +851,7 @@ fn_meta_plot <- function(featurematrix, columnstoplot, multi=FALSE, value="value
     }else if (mean(sapply(strsplit(as.character(df_st$row), "%"), function(x) length(x)))  > 2){
       message("splitting name required for ", i, ", splitting...")
       df_st["id"] <- sapply(strsplit(as.character(df_st$row), "%"), function(x) x[splitside])
+      storelist[[i]][["df"]] <- df
       storelist[[i]][["df_st"]] <- df_st
       if (!grepl("bins", i, ignore.case = TRUE)){
         storelist[[i]][["meta_plot"]] <- ggplot(df_st, aes_string(x=value, color="id", linetype=color)) + geom_density() +
@@ -863,6 +865,28 @@ fn_meta_plot <- function(featurematrix, columnstoplot, multi=FALSE, value="value
     }
   }
   return(storelist)
+}
+
+fn_annotate_peaks_to_genes <- function(peakfileslist, genefile, path, assaytype, software, outformat){
+  for (i in peakfileslist){
+    print(i)
+    all_df <- data.frame(fread(paste0(path, "/", i)))
+    message("writing all data...")
+    write.table(all_df, paste0(path,"/",assaytype, "_",software,"_",i,"_","all.",outformat), sep="\t", quote = F, append = F, row.names = F, col.names = F)
+    write.table(genefile, paste0(path,"/","gene_gencode_v41_out.",outformat), sep="\t", quote = F, append = F, row.names = F, col.names = F)
+    message("sorting...")
+    system(paste0("sort -k1,1 -k2,2n ", paste0(path,"/",assaytype, "_",software,"_",i,"_","all.",outformat),  " | grep chr > ", paste0(path,"/",assaytype, "_",software,"_",i,"_","all_sorted.",outformat)))
+    message("annotation to genes ...")
+    all_anno <- data.frame(fread(cmd=paste0("bedtools closest -a ", paste0(path,"/",assaytype, "_",software,"_",i,"_","all_sorted.",outformat), " -b ", paste0(path,"/","gene_gencode_v41_out.",outformat), " -d")))
+    colnames(all_anno) <- c(colnames(all_df), "gene_chr", "gene_start", "gene_end", "gene_strand", "gene_type", "ensID", "gene", "ens_gene","Distance")
+    storelist <- list()
+    storelist[[i]][["all"]][["all"]] <- all_anno
+    message("getting peaks nearest distance to genes...")
+    nearest_distance = 0
+    all_anno_nearest <- all_anno %>% dplyr::filter(Distance == nearest_distance)
+    storelist[[i]][["nearest"]][["all"]] <- all_anno_nearest
+    return(storelist)
+  }
 }
 
 ###########################################
@@ -887,6 +911,16 @@ integration_features_list[["promoter"]] <- data.frame(GenomicRanges::promoters(m
 # filter chrM
 integration_features_list$promoter <- integration_features_list$promoter[which(integration_features_list$promoter$seqnames != "chrM"),]
 write.table(integration_features_list$promoter[,c(1,2,3,7,8,5)], paste0("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/integration/","gene_gencodev41_promoter.txt"), sep="\t", quote=F, append = F, row.names = F, col.names = F)
+
+# tss of genes
+integration_features_list[["transcript"]] <- fn_read_genefile("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/integration/", "transcript_v41_human_transcript_grch38.sorted.txt")
+integration_features_list[["tss"]] <- data.frame(GenomicRanges::resize(makeGRangesFromDataFrame(integration_features_list[["transcript"]], keep.extra.columns=TRUE), width=2, fix='start'))
+write.table(integration_features_list$tss[,c(1,2,3,7,9,5)], paste0("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/integration/","transcript_gencodev41_tss.txt"), sep="\t", quote=F, append = F, row.names = F, col.names = F)
+
+integration_features_list[["gene_tss"]] <- data.frame(GenomicRanges::resize(makeGRangesFromDataFrame(integration_features_list[["gene"]], keep.extra.columns=TRUE), width=2, fix='start'))
+write.table(integration_features_list$gene_tss[,c(1,2,3)], paste0("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/integration/","gene_gencodev41_genetss.txt"), sep="\t", quote=F, append = F, row.names = F, col.names = F)
+
+write.table(integration_features_list$gene_ext[,c(1,2,3,7,8)], paste0("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/integration/","gene_gencodev41_gene.txt"), sep="\t", quote=F, append = F, row.names = F, col.names = F)
 
 # rnaseqkd_gene_groups
 integration_path <- "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/integration"
@@ -937,8 +971,12 @@ ggvenn::ggvenn(
 set_rnaseqde_merged_shC1_shS_up_pos <- merge(set_rnaseqde_merged_shC1_shS_up, integration_features_list$gene, by.x="ensID_Gene", by.y="ens_gene")
 write.table(set_rnaseqde_merged_shC1_shS_up_pos[,c(3:5,1,2,6)], paste0("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/integration/","set_rnaseqde_merged_shC1_shS_up_pos.txt"), sep="\t", quote=F, append = F, row.names = F, col.names = F)
 
+# export files
+write.xlsx(rnaseqkd_list$deseq2$de_analysis$shC1_c1509$de, file = "rnaseqkd_list_deseq2_de_analysis_shC1_c1509_de.xlsx", colNames = TRUE, rowNames = TRUE)
+write.xlsx(rnaseqkd_list$deseq2$de_analysis$shS_c1509$de, file = "rnaseqkd_list_deseq2_de_analysis_shS_c1509_de.xlsx", colNames = TRUE, rowNames = TRUE)
+
 ################################################
-###       ATAC-Seq data: Knockdown           ###
+###       ATAC-Seq data: Knockdown  PE       ###
 ################################################
 
 # deseq2 with consensus peaks (direct from nextflow)
@@ -1001,16 +1039,11 @@ atacseqkd_edger_list$coldata$Condition <- factor(atacseqkd_edger_list$coldata$Co
 atacseqkd_edger_list$coldata <- atacseqkd_edger_list$coldata[c(6,4,5,1,3,2),c(1:3)] # Specific requirement here
 
 atacseqkd_edger_list[["dge_obj"]] <- fn_edger_create(atacseqkd_edger_list$processed_counts, atacseqkd_edger_list$coldata)
-
 atacseqkd_edger_list[["dar_analysis"]] <- fn_edger_de(atacseqkd_edger_list$dge_obj$lmfit, atacseqkd_edger_list$dge_obj$design, 0.05, 2)
-
 atacseqkd_edger_list[["consensus"]] <- data.frame(fread("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/macs2/broad_peak/consensus/consensus_peaks.mLb.clN.bed"))
-
 atacseqkd_edger_list[["annotation"]] <- fn_consensus_gene_anno("atacseqkd", "edger", atacseqkd_edger_list$dar_analysis$dars, atacseqkd_edger_list$consensus, atacseqkd_edger_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt", 0.05, 2)
-
 # atacseqkd_edger_list[["chipseeker"]][["plots"]] <- fn_run_chipseeker("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/macs2/broad_peak/", "atacseqkd", TxDb.Hsapiens.UCSC.hg38.knownGene, "org.Hs.eg.db", "*.broadPeak")
 atacseqkd_edger_list[["chipseeker"]][["annotation"]] <- fn_chipseeker_region_anno("atacseqkd", "edger", atacseqkd_edger_list$dar_analysis$dars, atacseqkd_edger_list$consensus[,c(1:4)], "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/", TxDb.Hsapiens.UCSC.hg38.knownGene, "org.Hs.eg.db", "region_bed.txt", 0.05, 2) 
-
 atacseqkd_edger_list$dar_analysis$dars$coef_shCRAMP1[["maplot"]] <- fn_maplot(atacseqkd_edger_list$dar_analysis$dars$coef_shCRAMP1$all, c(2,1,5,6), 0.05, 2)
 atacseqkd_edger_list$dar_analysis$dars$coef_shSUZ12[["maplot"]] <- fn_maplot(atacseqkd_edger_list$dar_analysis$dars$coef_shSUZ12$all, c(2,1,5,6), 0.05, 2)
 
@@ -1060,7 +1093,6 @@ atacseqkd_limma_list[["dar_analysis"]] <- fn_limma_de(atacseqkd_limma_list$dge_o
 atacseqkd_limma_list[["consensus"]] <- data.frame(fread("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/macs2/broad_peak/consensus/consensus_peaks.mLb.clN.bed"))
 # scaffolds with non-chr annotation wil be filtered
 atacseqkd_limma_list[["annotation"]] <- fn_consensus_gene_anno("atacseqkd", "limma", atacseqkd_limma_list$dar_analysis$dars,atacseqkd_limma_list$consensus, atacseqkd_limma_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt", 0.05, 2)
-
 atacseqkd_limma_list[["chipseeker"]][["annotation"]] <- fn_chipseeker_region_anno("atacseqkd", "limma", atacseqkd_limma_list$dar_analysis$dars, atacseqkd_limma_list$consensus[,c(1:4)], "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/", TxDb.Hsapiens.UCSC.hg38.knownGene, "org.Hs.eg.db", "region_bed.txt", 0.05, 2) 
 
 # Create MA plot
@@ -1389,9 +1421,12 @@ atacseqkd_quantify_list[["featurecounts"]][["featureslist"]][["selected_rkd_grou
 atacseqkd_quantify_list[["featurecounts"]][["featureslist"]][["selected_rkd_uniq_diff"]] <-  c("_shC1_shS_up_pos.txt", "set_rnaseqde_merged_shC1_shS_up_pos.txt")
 atacseqkd_quantify_list[["featurecounts"]][["pairs"]] <- list(shCRAMP1_shControl_1 = c("shCRAMP1_REP1.mLb.clN.sorted.bam","shControl_REP1.mLb.clN.sorted.bam"), shCRAMP1_shControl_2 = c("shCRAMP1_REP2.mLb.clN.sorted.bam", "shControl_REP2.mLb.clN.sorted.bam") , shSUZ12_shControl_1 = c("shSUZ12_REP1.mLb.clN.sorted.bam", "shControl_REP1.mLb.clN.sorted.bam"), shSUZ12_shControl_2 = c("shSUZ12_REP2.mLb.clN.sorted.bam", "shControl_REP2.mLb.clN.sorted.bam"))
 atacseqkd_quantify_list[["featurecounts"]][["featuresmatrix"]] <- fn_quantify_featurecounts_multifeature("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/", "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/integration/", "atacseqkd", ".mLb.clN.sorted.bam", atacseqkd_quantify_list$featurecounts$featureslist, c(4,5,1:3,6), "hg38", "shControl",pe=TRUE, diff="multi", atacseqkd_quantify_list$featurecounts$pairs)
+atacseqkd_quantify_list[["featurecounts"]][["featuresmatrix_plots"]] <- fn_meta_plot(atacseqkd_quantify_list$featurecounts$featuresmatrix, c(7:10), rep=1, splitside=3)
+
+ggplot(atacseqkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st, aes(x=col, y=value, color=id))  + geom_boxplot(width=0.7) + theme_classic()+ geom_hline(yintercept = 0, linetype="dotted")
 
 ################################################
-###         CUT&RUN data: Knockout           ###
+###         CUT&RUN data: Knockout SE        ###
 ################################################
 
 # deseq2 with consensus peaks (direct from nextflow)
@@ -1420,8 +1455,12 @@ cutnrunko_deseq2_list[["annotation"]] <- fn_consensus_gene_anno("cutnrunko", "de
 plotPCA(cutnrunko_deseq2_list$dar_analysis$vstO, intgroup="sample", returnData=FALSE)
 
 cutnrunko_deseq2_list[["aggregate_pergene"]][["KO_WT"]][["nearest"]][["de"]] <- fn_aggregate_feature(cutnrunko_deseq2_list$annotation$KO_WT$nearest$de, c(3), "ens_gene", mean)
+cutnrunko_deseq2_list[["aggregate_pergene"]][["KO_WT"]][["nearest"]][["up"]] <- fn_aggregate_feature(cutnrunko_deseq2_list$annotation$KO_WT$nearest$up, c(3), "ens_gene", mean)
+cutnrunko_deseq2_list[["aggregate_pergene"]][["KO_WT"]][["nearest"]][["down"]] <- fn_aggregate_feature(cutnrunko_deseq2_list$annotation$KO_WT$nearest$down, c(3), "ens_gene", mean)
 
 colnames(cutnrunko_deseq2_list$aggregate_pergene$KO_WT$nearest$de$aggregated) <- c("ensID_Gene", "mean_log2FC")
+colnames(cutnrunko_deseq2_list$aggregate_pergene$KO_WT$nearest$up$aggregated) <- c("ensID_Gene", "mean_log2FC")
+colnames(cutnrunko_deseq2_list$aggregate_pergene$KO_WT$nearest$down$aggregated) <- c("ensID_Gene", "mean_log2FC")
 
 # quantify over various features
 # now since I have information for groups to take
@@ -1435,14 +1474,123 @@ cutnrunko_quantify_list[["featurecounts"]][["featureslist"]][["selected_rkd_grou
 cutnrunko_quantify_list[["featurecounts"]][["featureslist"]][["selected_rkd_uniq_diff"]] <-  c("_shC1_shS_up_pos.txt", "set_rnaseqde_merged_shC1_shS_up_pos.txt")
 cutnrunko_quantify_list[["featurecounts"]][["pairs"]] <- list(H3K27me3_KO1_IgG=c("H3K27me3_KO1.mLb.clN.sorted.bam", "IgG_KO1.mLb.clN.sorted.bam"), H3K27me3_KO2_IgG=c("H3K27me3_KO2.mLb.clN.sorted.bam", "IgG_KO2.mLb.clN.sorted.bam"), H3K27me3_KO3_IgG=c("H3K27me3_KO3.mLb.clN.sorted.bam", "IgG_KO3.mLb.clN.sorted.bam"), H3K27me3_WT_IgG=c("H3K27me3_WT.mLb.clN.sorted.bam", "IgG_WT.mLb.clN.sorted.bam"))
 cutnrunko_quantify_list[["featurecounts"]][["featuresmatrix"]] <- fn_quantify_featurecounts_multifeature("/mnt/home3/reid/av638/cutnrun/iva_lab_oct23/cutnrun_k27_ko/outfolder/bowtie2/mergedLibrary/", "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/integration/", "cutnrunko", ".mLb.clN.sorted.bam", cutnrunko_quantify_list$featurecounts$featureslist, c(4,5,1:3,6), "hg38", "IgG",pe=FALSE, diff="multi", cutnrunko_quantify_list$featurecounts$pairs)
+cutnrunko_quantify_list[["featurecounts"]][["featuresmatrix_plots"]] <- fn_meta_plot(cutnrunko_quantify_list$featurecounts$featuresmatrix, c(9:12), rep=1, splitside=3)
 
 # quantify overs atacseq dars
 cutnrunko_quantify_list[["featurecounts"]][["atacseqdars"]] <- list(shCRAMP1_shControl=c("_diffbind_d_shCRAMP1_shControl_de_re.bed", "atacseqkd_diffbind_d_shCRAMP1_shControl_de_re.bed"), shSUZ12_shControl=c("_diffbind_d_shSUZ12_shControl_de_re.bed", "atacseqkd_diffbind_d_shSUZ12_shControl_de_re.bed"))
 cutnrunko_quantify_list[["featurecounts"]][["pairs"]] <- list(H3K27me3_KO1_IgG=c("H3K27me3_KO1.mLb.clN.sorted.bam", "IgG_KO1.mLb.clN.sorted.bam"), H3K27me3_KO2_IgG=c("H3K27me3_KO2.mLb.clN.sorted.bam", "IgG_KO2.mLb.clN.sorted.bam"), H3K27me3_KO3_IgG=c("H3K27me3_KO3.mLb.clN.sorted.bam", "IgG_KO3.mLb.clN.sorted.bam"), H3K27me3_WT_IgG=c("H3K27me3_WT.mLb.clN.sorted.bam", "IgG_WT.mLb.clN.sorted.bam"))
 cutnrunko_quantify_list[["featurecounts"]][["darsmatrix"]] <- fn_quantify_featurecounts_multifeature("/mnt/home3/reid/av638/cutnrun/iva_lab_oct23/cutnrun_k27_ko/outfolder/bowtie2/mergedLibrary/", "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/integration/", "cutnrunko", ".mLb.clN.sorted.bam", cutnrunko_quantify_list$featurecounts$atacseqdars, c(5,4,1:3,6), "hg38", "IgG",pe=FALSE, diff="multi", cutnrunko_quantify_list$featurecounts$pairs)
 
+ggplot(cutnrunko_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st, aes(x=col, y=value, color=id))  + geom_boxplot(width=0.7) + theme_classic()+ geom_hline(yintercept = 0, linetype="dotted")
+ggplot(cutnrunko_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st, aes(x=value, color=col, linetype=id)) + geom_density() + scale_linetype_manual(values = c(rep("solid",1),rep("longdash",1),rep("dashed",1),rep("dotted",1))) + geom_vline(aes(xintercept=0), color="grey", linetype="dashed", size=0.2) + scale_color_manual(values = c("blue", "blue", "blue", "orange"))+theme_classic()
+# 
+# ggplot(cutnrunko_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st, aes(x=col, y=value, color=id))  + geom_violin(trim=FALSE, position = position_dodge(0.4)) + theme_classic() + geom_hline(yintercept = 0, linetype="dotted")
+
+ggplot(cutnrunko_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st, aes(x=col, y=value, col =id)) + 
+  geom_violin(aes(color = id), trim = FALSE, position = position_dodge(0.9), size=0.25, width = 1.5) +
+  geom_boxplot(aes(color = id), width = 0.05, position = position_dodge(0.9))  + theme_classic() + geom_hline(yintercept = 0, linetype="dotted")
+
+
+# intersect with DE genes from RNA-Seq categories
+overlap_cutnrunko_rnaseqkd_de_genes_mat <- matrix(0,4,4)
+overlap_cutnrunko_rnaseqkd_de_genes_mat_exp <- matrix(0,4,4)
+total_genes_expressed_in_rnaseqkd <- rnaseqkd_list$deseq2$de_analysis$c1509_shC1$all$ensID_Gene # take any categories after filtering the genes will be same, i.e expressed genes in c1509_shC1 before any filtering will same as c1509_shS
+for (i in names(list_set_rnaseqde_merged_shC1_shS_up)){
+  # print(list_set_rnaseqde_merged_shC1_shS_up[[i]])
+  index_i <- match(i, names(list_set_rnaseqde_merged_shC1_shS_up))
+  # print(index_i)
+  # print(head(get(i)),2)
+  # print(dim(get(i))[1])
+  overlap_cutnrunko_rnaseqkd_de_genes_mat[index_i,1] <- length(list_set_rnaseqde_merged_shC1_shS_up[[i]])
+  total_genes_expressed_in_rnaseqkd_categorised <- intersect(list_set_rnaseqde_merged_shC1_shS_up[[i]], total_genes_expressed_in_rnaseqkd)
+  overlap_cutnrunko_rnaseqkd_de_genes_mat_exp[index_i,1] <- length(total_genes_expressed_in_rnaseqkd_categorised)
+  rnaseqkd_de_genes_info <- list_set_rnaseqde_merged_shC1_shS_up[[i]]
+  for (j in names(cutnrunko_deseq2_list$aggregate_pergene$KO_WT$nearest)){
+    index_j <- match(j, names(cutnrunko_deseq2_list$aggregate_pergene$KO_WT$nearest))
+    # print(index_j)
+    print(paste0(index_i," vs ", index_j))
+    print(paste0(i," vs ", j))
+    print("performing for  all genes")
+    cutnrunko_dbr_nearest_genes_info <- cutnrunko_deseq2_list$aggregate_pergene$KO_WT$nearest[[j]][["aggregated"]]
+    overlap_cutnrunko_rnaseqkd_de_genes <- intersect(rnaseqkd_de_genes_info, cutnrunko_dbr_nearest_genes_info$ensID_Gene)
+    print(length(overlap_cutnrunko_rnaseqkd_de_genes))
+    overlap_cutnrunko_rnaseqkd_de_genes_mat[index_i,index_j+1] <- length(overlap_cutnrunko_rnaseqkd_de_genes)
+    print("performing for only expressed genes")
+    # take only 
+    cutnrunko_dbr_nearest_exp_genes_info <- intersect(total_genes_expressed_in_rnaseqkd, cutnrunko_dbr_nearest_genes_info$ensID_Gene)
+    overlap_cutnrunko_rnaseqkd_exp_de_genes <- intersect(rnaseqkd_de_genes_info, cutnrunko_dbr_nearest_exp_genes_info)
+    print(length(overlap_cutnrunko_rnaseqkd_exp_de_genes))
+    overlap_cutnrunko_rnaseqkd_de_genes_mat_exp[index_i,index_j+1] <- length(overlap_cutnrunko_rnaseqkd_exp_de_genes)
+  }
+}
+rownames(overlap_cutnrunko_rnaseqkd_de_genes_mat) <- names(list_set_rnaseqde_merged_shC1_shS_up)
+colnames(overlap_cutnrunko_rnaseqkd_de_genes_mat) <- c("all","de", "up", "down")
+
+rownames(overlap_cutnrunko_rnaseqkd_de_genes_mat_exp) <- names(list_set_rnaseqde_merged_shC1_shS_up)
+colnames(overlap_cutnrunko_rnaseqkd_de_genes_mat_exp) <- c("all","de", "up", "down")
+
+# de 
+#shC1_up
+1-phyper(13,277,19393-277,1404)
+# shS_up
+1-phyper(99,1054,19393-1054,1404)
+# shC1_shS_up
+1-phyper(79,443,19393-443,1404)
+
+# up 
+#shC1_up
+1-phyper(3,277,19393-277,311)
+# shS_up
+1-phyper(13,1054,19393-1054,311)
+# shC1_shS_up
+1-phyper(7,443,19393-443,311)
+
+# down 
+#shC1_up
+1-phyper(10,277,19393-277,1102)
+# shS_up
+1-phyper(88,1054,19393-1054,1102)
+# shC1_shS_up
+1-phyper(72,443,19393-443,1102)
+# 
+
+# for expresed genes
+# de 
+#shC1_up
+1-phyper(13,277,19393-277,557)
+# shS_up
+1-phyper(99,1054,19393-1054,557)
+# shC1_shS_up
+1-phyper(79,443,19393-443,557)
+
+# up 
+#shC1_up
+1-phyper(3,277,19393-277,75)
+# shS_up
+1-phyper(13,1054,19393-1054,75)
+# shC1_shS_up
+1-phyper(7,443,19393-443,75)
+
+# down 
+#shC1_up
+1-phyper(10,277,19393-277,488)
+# shS_up
+1-phyper(88,1054,19393-1054,488)
+# shC1_shS_up
+1-phyper(72,443,19393-443,488)
+#
+# total =61852
+# total white balls=277
+# no. of white balls drawn = 13
+# no. of black balls=61852-277 = 61575
+# no. of balls drawn=1404
+# 1-phyper(13,277,61575,1404)
+# 1-phyper(79,443,61409,1404)
+# 1-phyper(99,1054,60798,1404)
+# 1-phyper(1213,60078,1774,1404)
+
 ################################################
-###         CUT&RUN data: Knockdown          ###
+###         CUT&RUN data: Knockdown SE       ###
 ################################################
 
 # deseq2 with consensus peaks (direct from nextflow)
@@ -1492,9 +1640,12 @@ cutnrunkd_quantify_list[["featurecounts"]][["pairs"]] <- list(
   shCRAMP1_IgG = c("shCRAMP1_H3K27me3.mLb.clN.sorted.bam","shCRAMP1_IgG.mLb.clN.sorted.bam"),
   shSUZ12_IgG = c("shSUZ12_H3K27me3.mLb.clN.sorted.bam", "shSUZ12_IgG.mLb.clN.sorted.bam"))
 cutnrunkd_quantify_list[["featurecounts"]][["featuresmatrix"]] <- fn_quantify_featurecounts_multifeature("/mnt/home3/reid/av638/cutnrun/iva_lab_oct23/cutnrun_k27_kd/outfolder/bowtie2/mergedLibrary/", "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/integration/", "cutnrunkd", ".mLb.clN.sorted.bam", cutnrunkd_quantify_list$featurecounts$featureslist, c(4,5,1:3,6), "hg38", "shControl",pe=FALSE, diff="multi", cutnrunkd_quantify_list$featurecounts$pairs)
+cutnrunkd_quantify_list[["featurecounts"]][["featuresmatrix_plots"]] <- fn_meta_plot(cutnrunkd_quantify_list$featurecounts$featuresmatrix, c(7:9), rep=1, splitside=3)
+
+ggplot(cutnrunkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st, aes(x=col, y=value, color=id))  + geom_boxplot(width=0.7) + theme_classic()+ geom_hline(yintercept = 0, linetype="dotted")
 
 ################################################
-###         CUT&TAG data: wildtype  SE       ###
+###         CUT&TAG data: Wildtype  SE       ###
 ################################################
 cutntagwt_quantify_list <- list()
 cutntagwt_quantify_list[["featurecounts"]] <- fn_quantify_featurecounts("/mnt/home3/reid/av638/cutntag/iva_lab_oct23/outfolder/bowtie2/mergedLibrary", "cutntagwt","\\.bam$", "\\_peaks_id.bed$","histone_marks", c(12,4,1:3,7), pairedend=FALSE, "hg38", "_",merge_sites_files=FALSE)
@@ -1551,6 +1702,16 @@ cutntagwt_quantify_list[["featurecounts"]][["featuresmatrix_plots"]] <- fn_meta_
 
 # for check if two df are exactly same and to check if fn_quantify_featurecounts_multifeature is created properly and doing the same thing as individual steps look at Check Notes
 
+# quantify overs atacseq dars
+cutntagwt_quantify_list[["featurecounts"]][["atacseqdars"]] <- list(shCRAMP1_shControl=c("_diffbind_d_shCRAMP1_shControl_de_re.bed", "atacseqkd_diffbind_d_shCRAMP1_shControl_de_re.bed"), shSUZ12_shControl=c("_diffbind_d_shSUZ12_shControl_de_re.bed", "atacseqkd_diffbind_d_shSUZ12_shControl_de_re.bed"))
+cutntagwt_quantify_list[["featurecounts"]][["darsmatrix"]] <- fn_quantify_featurecounts_multifeature("/mnt/home3/reid/av638/cutntag/iva_lab_oct23/outfolder/bowtie2/mergedLibrary/", "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/integration/", "cutntagwt", ".mLb.clN.sorted.bam", cutntagwt_quantify_list$featurecounts$atacseqdars, c(5,4,1:3,6), "hg38", "IgG", pe=FALSE, diff="single")
+
+
+ggplot(cutntagwt_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st, aes(x=col, y=value, color=id))  + geom_boxplot(width=0.7) + theme_classic()+ geom_hline(yintercept = 0, linetype="dotted")
+
+ggplot(cutntagwt_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st, aes(x=col, y=value, col =id)) + 
+  geom_violin(aes(color = id), trim = FALSE, position = position_dodge(0.9), size=0.25, width = 10) +
+  geom_boxplot(aes(color = id), width = 0.05, position = position_dodge(0.9))  + theme_classic() + geom_hline(yintercept = 0, linetype="dotted")
 ##############################################################
 ###         CUT&TAG data: WT and KD and FLAG (PE)        ###
 ##############################################################
@@ -1641,6 +1802,29 @@ cutntagwkd_quantify_list$featurecounts$featuresmatrix$bins5kb[["pca_counts"]] <-
 
 cutntagwkd_quantify_list$featurecounts$featuresmatrix$bins5kb[["pca_diff"]] <- fn_make_pca(cutntagwkd_quantify_list$featurecounts$featuresmatrix$bins5kb$log_normalized_counts[,c(23:38)], "_R1.target.markdup.sorted.bam", "pca")
 
+cutntagwkd_quantify_list[["featurecounts"]][["featuresmatrix_plots"]] <- fn_meta_plot(cutntagwkd_quantify_list$featurecounts$featuresmatrix, c(23:38), rep=1, splitside=3)
+ggplot(cutntagwkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st, aes(x=col, y=value, color=id))  + geom_boxplot(width=0.7) + theme_classic()+ geom_hline(yintercept = 0, linetype="dotted")+ coord_flip()
+# save as cutntagwkd_quantify_list_featuresmatrix_plots.pdf
+
+cutntagwkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_sub_st <- dplyr::filter(cutntagwkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st, !grepl('FLAG|WT', col))
+ggplot(cutntagwkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_sub_st, aes(x=col, y=value, color=id))  + geom_boxplot(width=0.7) + theme_classic()+ geom_hline(yintercept = 0, linetype="dotted")+ coord_flip()
+
+cutntagwkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_subH1_4_st <- dplyr::filter(cutntagwkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st, !grepl('FLAG|WT|H1_', col))
+ggplot(cutntagwkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_subH1_4_st, aes(x=col, y=value, color=id))  + geom_boxplot(width=0.7) + theme_classic()+ geom_hline(yintercept = 0, linetype="dotted")+ coord_flip()
+
+cutntagwkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_subH1_st <- dplyr::filter(cutntagwkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st, !grepl('FLAG|WT|H14', col))
+ggplot(cutntagwkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_subH1_st, aes(x=col, y=value, color=id))  + geom_boxplot(width=0.7) + theme_classic()+ geom_hline(yintercept = 0, linetype="dotted")+ coord_flip()
+
+
+#################################
+######## Public data ############
+#################################
+public_list <- list()
+public_list[["peakfilelist"]] <- list.files("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/integration", "AHF_peaks_id.bed")
+public_list[["gene"]] <- fn_read_genefile("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/integration/", "gene_gencode_human_upstream_2kb.sorted.txt")
+public_list[["peaks_anno"]] <- fn_annotate_peaks_to_genes(public_list$peakfilelist, public_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/integration","chipseq", "encode", "txt")
+write.table((public_list$peaks_anno$H3K27me3_ENCFF801AHF_peaks_id.bed$nearest$all[,c(13:15,19,18)] %>% dplyr::distinct()), "H3K27me3_ENCFF801AHF_peaks_id_neareast_anno.txt", sep="\t", quote = F, append = F, col.names = F, row.names = F)
+
 # Integration of omics data
 data_integration_list <- list()
 
@@ -1713,6 +1897,19 @@ intergration_omics_list[["histonemarks"]][["cutntag"]] <- rbind(cutntagwt_quanti
 pheatmap::pheatmap(as.matrix(intergration_omics_list$histonemarks$cutntag[c(1:5,11,12:22,24:27),]), na_col = "grey",breaks = breaksListp,
                    color = colorRampPalette(c("white", "orange"))(length(breaksListp)),
                    clustering_distance_cols = "euclidean", cluster_rows = T, cluster_cols = T, clustering_method = "ward.D")
+
+intergration_omics_list[["featurecounts"]][["featuresmatrix_plots"]][["selected_rkd_uniq_diff"]][["cutntagwt_cutntagwkd"]] <- 
+  rbind.data.frame(cutntagwt_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st, 
+                   cutntagwkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st)
+
+ggplot(intergration_omics_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$cutntagwt_cutntagwkd, aes(x=col, y=value, color=id))  + geom_boxplot(width=0.7) + theme_classic()+ geom_hline(yintercept = 0, linetype="dotted")+ coord_flip()
+
+intergration_omics_list[["featurecounts"]][["featuresmatrix_plots"]][["selected_rkd_uniq_diff"]][["cutntagwt_cutntagwkd_filt"]] <- dplyr::filter(intergration_omics_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$cutntagwt_cutntagwkd, !grepl('FLAG|WT', col))
+
+ggplot(intergration_omics_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$cutntagwt_cutntagwkd_filt, aes(x=col, y=value, color=id))  + geom_boxplot(width=0.7) + theme_classic()+ geom_hline(yintercept = 0, linetype="dotted")+ coord_flip()
+intergration_omics_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$cutntagwt_cutntagwkd_filt <- intergration_omics_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$cutntagwt_cutntagwkd_filt[,c(3,2)]
+
+# save as cutntagwkd_quantify_list_featuresmatrix_plots.pdf
 
 ################################################ END OF ANALYSIS ###########################################################
 
