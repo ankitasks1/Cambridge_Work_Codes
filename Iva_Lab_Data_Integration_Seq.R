@@ -27,6 +27,8 @@ library(ComplexHeatmap)
 library(ggbreak)
 library(Rsamtools)
 library(Rsubread)
+library(RColorBrewer)
+
 
 setwd("/mnt/beegfs6/home3/reid/av638/atacseq/iva_lab_gencode/integration")
 
@@ -816,6 +818,23 @@ fn_maplot_general <- function(df, columnbyorder, fdr, logfc){
              hjust = 1, vjust = 1, color = "black")
 }
 
+fn_maplot_general_shrinkage <- function(df, columnbyorder, fdr, logfc){
+  plotlist <- list()
+  message("rearranging and plotting ma...")
+  df <- df[,columnbyorder]
+  colnames(df) <- c("baseMean","lfcSE","padj","feature")
+  df$color <- ifelse(df$lfcSE > logfc & df$padj < fdr, "#B31B21", 
+                     ifelse(df$lfcSE < -logfc & df$padj < fdr, "#1465AC", "grey"))
+  plotlist[["maplot"]] <- ggplot(df, aes(x = baseMean, y = lfcSE, color = color)) + geom_point(alpha = 0.8, size = 0.4) +
+    ggtitle("MA Plot") + xlab("Average Expression (AveExpr)") + ylab("Log-Fold Change Shrinkage (logFCSE)") +
+    scale_color_identity() + theme_minimal()+
+    annotate("text", x = max(df$baseMean), y = max(df$lfcSE), 
+             label = paste("Up:", sum(df$lfcSE > logfc & df$padj < fdr)),
+             hjust = 1, vjust = 1, color = "black") +
+    annotate("text", x = max(df$baseMean), y = min(df$lfcSE), 
+             label = paste("Down:", sum(df$lfcSE < -logfc & df$padj < fdr)),
+             hjust = 1, vjust = 1, color = "black")
+}
 
 
 fn_rearrange_groups <- function(grouplist){
@@ -889,6 +908,35 @@ fn_annotate_peaks_to_genes <- function(peakfileslist, genefile, path, assaytype,
   }
 }
 
+fn_go_term_analysis <- function(gene_list, organism){
+  storelist <- list()
+  for (names in names(gene_list)) {
+    print(names)
+    message("getting gene names ...")
+    geneset <- sapply(strsplit(gene_list[[names]], "%"), function(x) x[2])
+    message("total genes belonging to ", names, " are...")
+    print(length(geneset))
+    message("performing gost ...")
+    gost <- gost(query=geneset, organism=organism)
+    storelist[[names]][["gost"]] <- gost
+    if (length(gost) > 0){
+      gost <- gost$result[order(gost$result$p_value),]
+      gost["term_name_collapse"] <- paste0(gost$term_id,"_",gost$source,"_" ,gsub(" ", ".", gost$term_name))
+      storelist[[names]][["gost_re"]] <- gost
+      message("extracting GO:BP ...")
+      gost_gobp <- gost[which(gost$source == "GO:BP"),]
+      gost_gobp_bar <- gost_gobp[,c(11,3)]
+      gost_gobp_bar_top <- head(gost_gobp_bar,10)
+      gost_gobp_bar_top$p_value <- -log10(gost_gobp_bar_top$p_value)
+      storelist[[names]][["top"]] <- gost_gobp_bar_top
+      message("plotting barplot ...")
+      plotBar <- ggbarplot(gost_gobp_bar_top, x = "term_name", y = "p_value", color = "#5d93c4ff", fill = "#5d93c4ff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = gsub("gost.","",names), lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+      storelist[[names]][["barplot"]] <- plotBar
+    }
+  }
+  return(storelist)
+}
+
 ###########################################
 ####  common_files among all datasets   ###
 ###########################################
@@ -954,6 +1002,10 @@ fn_plot_venn(list_rnaseqkd_de_shC1_c1509_shS_c1509, c("#0073C2FF", "#EFC000FF","
 list_rnaseqkd_up_shC1_c1509_shS_c1509 <- list(shC1_c1509 = unique(rnaseqkd_list$deseq2$de_analysis$shC1_c1509$up$ensID_Gene), shS_c1509=unique(rnaseqkd_list$deseq2$de_analysis$shS_c1509$up$ensID_Gene))
 fn_plot_venn(list_rnaseqkd_up_shC1_c1509_shS_c1509, c("#0073C2FF", "#EFC000FF","#0073C2FF", "#EFC000FF"))
 
+list_rnaseqkd_down_shC1_c1509_shS_c1509 <- list(shC1_c1509 = unique(rnaseqkd_list$deseq2$de_analysis$shC1_c1509$down$ensID_Gene), shS_c1509=unique(rnaseqkd_list$deseq2$de_analysis$shS_c1509$down$ensID_Gene))
+fn_plot_venn(list_rnaseqkd_down_shC1_c1509_shS_c1509, c("#0073C2FF", "#EFC000FF","#0073C2FF", "#EFC000FF"))
+
+# extract unique genes to each category
 # take the rownames or ensID_Gene instead of direct gene symbol, I took rownames which is same as ensID_Gene
 set_rnaseqde_uniq_shC1_up <- data.frame(ensID_Gene=setdiff(unique(list_rnaseqkd_up_shC1_c1509_shS_c1509$shC1_c1509), unique(list_rnaseqkd_up_shC1_c1509_shS_c1509$shS_c1509)), label="only_shC1_up")
 set_rnaseqde_uniq_shS_up <- data.frame(ensID_Gene=setdiff(unique(list_rnaseqkd_up_shC1_c1509_shS_c1509$shS_c1509), unique(list_rnaseqkd_up_shC1_c1509_shS_c1509$shC1_c1509)), label="only_shS_up")
@@ -974,6 +1026,26 @@ write.table(set_rnaseqde_merged_shC1_shS_up_pos[,c(3:5,1,2,6)], paste0("/mnt/hom
 # export files
 write.xlsx(rnaseqkd_list$deseq2$de_analysis$shC1_c1509$de, file = "rnaseqkd_list_deseq2_de_analysis_shC1_c1509_de.xlsx", colNames = TRUE, rowNames = TRUE)
 write.xlsx(rnaseqkd_list$deseq2$de_analysis$shS_c1509$de, file = "rnaseqkd_list_deseq2_de_analysis_shS_c1509_de.xlsx", colNames = TRUE, rowNames = TRUE)
+
+# go term analysis
+# de
+# list_rnaseqkd_de_shC1_c1509_shS_c1509
+rnaseqkd_list[["goterm"]][["de"]] <- fn_go_term_analysis(list_rnaseqkd_de_shC1_c1509_shS_c1509, "hsapiens")
+
+# list_rnaseqkd_up_shC1_c1509_shS_c1509
+rnaseqkd_list[["goterm"]][["up"]] <- fn_go_term_analysis(list_rnaseqkd_up_shC1_c1509_shS_c1509, "hsapiens")
+
+# list_rnaseqkd_down_shC1_c1509_shS_c1509
+rnaseqkd_list[["goterm"]][["down"]] <- fn_go_term_analysis(list_rnaseqkd_down_shC1_c1509_shS_c1509, "hsapiens")
+
+# unique category
+# remove none_up
+list_set_rnaseqde_merged_shC1_shS_up_filt <- list_set_rnaseqde_merged_shC1_shS_up
+list_set_rnaseqde_merged_shC1_shS_up_filt$none_up <- NULL
+rnaseqkd_list[["goterm"]][["unique"]] <- fn_go_term_analysis(list_set_rnaseqde_merged_shC1_shS_up_filt, "hsapiens")
+
+# ma plot shrinkage
+rnaseqkd_list[["deseq2"]][["maplots_shrinkage"]][["shC1_c1509"]] <- fn_maplot_general_shrinkage(rnaseqkd_list$deseq2$de_analysis$shC1_c1509$all, c(1,3,6,7), 0.05, 1)
 
 ################################################
 ###       ATAC-Seq data: Knockdown  PE       ###
@@ -1814,6 +1886,58 @@ ggplot(cutntagwkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_
 
 cutntagwkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_subH1_st <- dplyr::filter(cutntagwkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st, !grepl('FLAG|WT|H14', col))
 ggplot(cutntagwkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_subH1_st, aes(x=col, y=value, color=id))  + geom_boxplot(width=0.7) + theme_classic()+ geom_hline(yintercept = 0, linetype="dotted")+ coord_flip()
+
+##############################################################
+###          CUT&TAG data: WT RM mapped (PE)               ###
+##############################################################
+cutntagrmwt_quantify_list <- list()
+
+# histone marks
+cutntagrmwt_quantify_list[["featurecounts"]] <- fn_quantify_featurecounts("/mnt/home3/reid/av638/cutntag/iva_lab_feb2024/bams", "cutntagrmwt","\\.bam$", "\\_peaks_id.bed$","histone_marks", c(12,4,1:3,7), pairedend=TRUE, "hg38", "_",merge_sites_files=FALSE)
+
+cutntagrmwt_quantify_list[["bams"]] <- fn_quantify_bams("/mnt/home3/reid/av638/cutntag/iva_lab_feb2024/bams", "cutntagrmwt","\\.bam$")
+cutntagrmwt_labelpath = "/mnt/home3/reid/av638/cutntag/iva_lab_oct23/outfolder/bowtie2/mergedLibrary/histone_marks_label.txt"
+cutntagrmwt_quantify_list[["summed"]] <- fn_summedreads_per_feature(cutntagrmwt_quantify_list$featurecounts$histone_marks_countmatrix, cutntagrmwt_quantify_list$bams$total_reads, cutntagrmwt_labelpath)
+
+# plot heatmap 
+cutntagrmwt_quantify_list$summed$all_features_ratio$sample <- gsub("ITit257-RM-|_sorted.bam","",cutntagrmwt_quantify_list$summed$all_features_ratio$sample)
+cutntagrmwt_quantify_list$summed[["susbet_all_features_ratio"]] <- cutntagrmwt_quantify_list$summed$all_features_ratio[,c(2,3,7)]
+cutntagrmwt_quantify_list$summed[["table_afr"]] <- data.frame(tidyr::pivot_wider(cutntagrmwt_quantify_list$summed$susbet_all_features_ratio, names_from = sample, values_from = Ratio))
+rownames(cutntagrmwt_quantify_list$summed$table_afr) <- cutntagrmwt_quantify_list$summed$table_afr$label
+cutntagrmwt_quantify_list$summed$table_afr <- cutntagrmwt_quantify_list$summed$table_afr[,-1]
+write.table(cutntagrmwt_quantify_list$summed$all_features, "cutntagrmwt_histonemarks_all_features.txt", sep="\t", quote = F, append = F, row.names = F, col.names = T)
+
+# subtraction of respective control
+cutntagrmwt_quantify_list$summed[["diff_table_afr"]] <- NULL
+for (i in c("F", "V5", "F|V5")){
+  if(i == "F"){
+    cutntagrmwt_quantify_list$summed[["diff_table_afr"]][["FLAG"]] <- cutntagrmwt_quantify_list$summed$table_afr[grepl(i, colnames(cutntagrmwt_quantify_list$summed$table_afr))] - cutntagrmwt_quantify_list$summed$table_afr[["F_S6"]]
+  }else if(i == "V5"){
+    cutntagrmwt_quantify_list$summed[["diff_table_afr"]][["V5"]] <- cutntagrmwt_quantify_list$summed$table_afr[grepl(i, colnames(cutntagrmwt_quantify_list$summed$table_afr))] - cutntagrmwt_quantify_list$summed$table_afr[["V5_S13"]]
+  }else if(i == "F|V5"){
+    #taking not equal strategy (!grepl for either F or V5)
+    cutntagrmwt_quantify_list$summed[["diff_table_afr"]][["WT"]] <- cutntagrmwt_quantify_list$summed$table_afr[!grepl(i, colnames(cutntagrmwt_quantify_list$summed$table_afr))] - cutntagrmwt_quantify_list$summed$table_afr[["IgG_S22"]]
+  }
+}
+cutntagrmwt_quantify_list$summed[["merged_diff_table_afr"]]<- do.call(cbind.data.frame, cutntagrmwt_quantify_list$summed$diff_table_afr)
+cutntagrmwt_quantify_list$summed$merged_diff_table_afr <- t(cutntagrmwt_quantify_list$summed$merged_diff_table_afr)
+rownames(cutntagrmwt_quantify_list$summed$merged_diff_table_afr) <- sapply(strsplit(rownames(cutntagrmwt_quantify_list$summed$merged_diff_table_afr), "_"), function(x) x[1])
+cutntagrmwt_quantify_list$summed$merged_diff_table_afr <- cutntagrmwt_quantify_list$summed$merged_diff_table_afr[order(rownames(cutntagrmwt_quantify_list$summed$merged_diff_table_afr)),]
+breaksListp <- seq(0, 0.2, by = 0.01)
+pheatmap::pheatmap(as.matrix(cutntagrmwt_quantify_list$summed$merged_diff_table_afr[c(14,15,16,2:6,7:12,18:22,1,13,17),]), na_col = "grey",breaks = breaksListp,
+                   color = colorRampPalette(c("white", "orange"))(length(breaksListp)),
+                   clustering_distance_cols = "euclidean", cluster_rows = F, cluster_cols = F, clustering_method = "ward.D")
+
+pheatmap::pheatmap(as.matrix(cutntagrmwt_quantify_list$summed$merged_diff_table_afr), na_col = "grey",breaks = breaksListp,
+                   color = colorRampPalette(c("white", "orange"))(length(breaksListp)),
+                   clustering_distance_cols = "euclidean", cluster_rows = T, cluster_cols = T, clustering_method = "ward.D")
+
+# for correlation remove controls as it interfere with stdev calculation
+corrplot::corrplot(cor(cutntagrmwt_quantify_list$summed$merged_diff_table_afr[-c(1,7,19),]))
+corrplot::corrplot(cor(t(cutntagrmwt_quantify_list$summed$merged_diff_table_afr[-c(1,7,19),])), method = 'square', addCoef.col = 'black', col= colorRampPalette(c("darkred", "yellow", "navy"))(20))
+cutntagrmwt_quantify_list$summed[["pca"]] <- prcomp(cutntagrmwt_quantify_list$summed$merged_diff_table_afr, center = TRUE, scale. = TRUE) 
+biplot(cutntagrmwt_quantify_list$summed$pca)
+factoextra::fviz_pca_ind(cutntagrmwt_quantify_list$summed$pca, geom = c("point", "text"))
 
 
 #################################
