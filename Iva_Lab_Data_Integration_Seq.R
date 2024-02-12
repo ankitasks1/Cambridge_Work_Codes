@@ -641,7 +641,7 @@ fn_quantify_featurecounts <- function(peaks_path, assaytype, bamfiles, sites_fil
   return(storelist)
 }
 
-# quantify for multiple feature using featurecounts
+# quantify for multiple feature using featurecounts subtract
 fn_quantify_featurecounts_multifeature <- function(assay_bam_path, feature_path, assay, bam_extension, feature_list, columnstorearrange, ref, control,pe=FALSE, diff="single", pairs){
   storelist <- list()
   for (i in names(feature_list)){
@@ -650,6 +650,7 @@ fn_quantify_featurecounts_multifeature <- function(assay_bam_path, feature_path,
     message("performing featurecounts...")
     storelist[[i]] <- fn_quantify_featurecounts(assay_bam_path, assay, paste0("\\",bam_extension,"$"), paste0("\\",feature_list[[i]][1],"$"), i, columnstorearrange, pairedend=pe, ref, "%",merge_sites_files=FALSE)
     storelist[[i]][["log_normalized_counts"]] <- log(data.frame(edgeR::cpm(storelist[[i]][[paste0(i, "_countmatrix")]][[feature_list[[i]][2]]][["counts"]])) + 1,2)
+    message("executing nomralization with respective controls...")
     if (diff=="single"){
       for (j in colnames(storelist[[i]][["log_normalized_counts"]])){
         if (j %notlike% control){
@@ -666,6 +667,36 @@ fn_quantify_featurecounts_multifeature <- function(assay_bam_path, feature_path,
 
         }
       }
+    storelist[[i]][["log_normalized_counts"]]["id"] <- rownames(storelist[[i]][["log_normalized_counts"]])
+  }
+  return(storelist)
+}
+# quantify for multiple feature using featurecounts_div
+fn_quantify_featurecounts_multifeature_div <- function(assay_bam_path, feature_path, assay, bam_extension, feature_list, columnstorearrange, ref, control,pe=FALSE, diff="single", pairs){
+  storelist <- list()
+  for (i in names(feature_list)){
+    message(paste0("copying ",feature_list[[i]][2], " to ", assay_bam_path, "..."))
+    system(paste0("cp ", feature_path, feature_list[[i]][2], " ", assay_bam_path))
+    message("performing featurecounts...")
+    storelist[[i]] <- fn_quantify_featurecounts(assay_bam_path, assay, paste0("\\",bam_extension,"$"), paste0("\\",feature_list[[i]][1],"$"), i, columnstorearrange, pairedend=pe, ref, "%",merge_sites_files=FALSE)
+    storelist[[i]][["normalized_counts"]] <- data.frame(edgeR::cpm(storelist[[i]][[paste0(i, "_countmatrix")]][[feature_list[[i]][2]]][["counts"]])) 
+    storelist[[i]][["log_normalized_counts"]] <- log(data.frame(edgeR::cpm(storelist[[i]][[paste0(i, "_countmatrix")]][[feature_list[[i]][2]]][["counts"]])) + 1,2)
+    message("executing nomralization with respective controls...")
+    if (diff=="single"){
+      for (j in colnames(storelist[[i]][["normalized_counts"]])){
+        if (j %notlike% control){
+          print(paste0("feature: ",i, ", sample: ",j))
+          message(paste0("dividing ", control, " from ", j,  "..."))
+          storelist[[i]][["log_normalized_counts"]][paste0(gsub(bam_extension,"",j),"_",control)] <- log(((storelist[[i]][["normalized_counts"]][j] + 1) / (storelist[[i]][["normalized_counts"]][paste0(control,bam_extension)] + 1)),2)
+        }
+      }
+    }else if (diff=="multi"){
+      for (k in names(pairs)){
+        print(paste0("feature: ",i, ", sample: ", pairs[[k]][1], " control: ", pairs[[k]][2]))
+        message(paste0("dividing ", pairs[[k]][2], " from ", pairs[[k]][1],  "..."))
+        storelist[[i]][["log_normalized_counts"]][k] <- log(((storelist[[i]][["normalized_counts"]][pairs[[k]][1]] + 1) / (storelist[[i]][["normalized_counts"]][pairs[[k]][2]] + 1)), 2)
+      }
+    }
     storelist[[i]][["log_normalized_counts"]]["id"] <- rownames(storelist[[i]][["log_normalized_counts"]])
   }
   return(storelist)
@@ -953,6 +984,8 @@ system("sort -k1,1 -k2,2n gene_gencode_human_upstream_2kb.txt > gene_gencode_hum
 system("bedtools makewindows -g hg38.chrom.sizes -w 5000 | awk '{print $1\"\\t\"$2\"\\t\"$3\"\\t\"\"bin_\"NR\"\\t\"$1\"%\"$2\"%\"$3\"\\t\"\".\"}' > hg38_5kb.txt")
 # bins10kb
 system("bedtools makewindows -g hg38.chrom.sizes -w 10000 | awk '{print $1\"\\t\"$2\"\\t\"$3\"\\t\"\"bin_\"NR\"\\t\"$1\"%\"$2\"%\"$3\"\\t\"\".\"}' > hg38_10kb.txt")
+# bins80kb
+system("bedtools makewindows -g hg38.chrom.sizes -w 80000 | awk '{print $1\"\\t\"$2\"\\t\"$3\"\\t\"\"bin_\"NR\"\\t\"$1\"%\"$2\"%\"$3\"\\t\"\".\"}' > hg38_80kb.txt")
 
 # promoter
 integration_features_list[["promoter"]] <- data.frame(GenomicRanges::promoters(makeGRangesFromDataFrame(integration_features_list[["gene"]], keep.extra.columns=TRUE), upstream=2000, downstream=200))
@@ -1938,6 +1971,51 @@ corrplot::corrplot(cor(t(cutntagrmwt_quantify_list$summed$merged_diff_table_afr[
 cutntagrmwt_quantify_list$summed[["pca"]] <- prcomp(cutntagrmwt_quantify_list$summed$merged_diff_table_afr, center = TRUE, scale. = TRUE) 
 biplot(cutntagrmwt_quantify_list$summed$pca)
 factoextra::fviz_pca_ind(cutntagrmwt_quantify_list$summed$pca, geom = c("point", "text"))
+
+# genome wide and other features assessment
+# quantify over various features
+cutntagrmwt_quantify_list[["featurecounts"]][["featureslist"]]=list(gene_ext=c(".chr_1.5kb.txt", "gene_gencode_human_gencode_out.sorted.chr_1.5kb.txt"), bins5kb=c("hg38_5kb.txt", "hg38_5kb.txt"), bins10kb=c("hg38_10kb.txt", "hg38_10kb.txt"), bins80kb=c("hg38_80kb.txt", "hg38_80kb.txt"), promoter=c("_gencodev41_promoter.txt", "gene_gencodev41_promoter.txt"))
+cutntagrmwt_quantify_list[["featurecounts"]][["featureslist"]][["selected_rkd_groups"]] <-  c("_rkd_gene_groups.txt", "selected_rkd_gene_groups.txt")
+cutntagrmwt_quantify_list[["featurecounts"]][["featureslist"]][["selected_rkd_uniq_diff"]] <-  c("_shC1_shS_up_pos.txt", "set_rnaseqde_merged_shC1_shS_up_pos.txt")
+cutntagrmwt_quantify_list[["featurecounts"]][["pairsinfo"]] <- data.frame(fread("/mnt/home3/reid/av638/cutntag/iva_lab_feb2024/bams/informationpairs.txt"))
+cutntagrmwt_quantify_list$featurecounts$pairsinfo <- cutntagrmwt_quantify_list$featurecounts$pairsinfo %>% distinct()
+cutntagrmwt_quantify_list$featurecounts$pairsinfo["id"] <- paste0(cutntagrmwt_quantify_list$featurecounts$pairsinfo$group, "_",cutntagrmwt_quantify_list$featurecounts$pairsinfo$control)
+
+# replacing all - by . is required
+cutntagrmwt_quantify_list$featurecounts$pairsinfo <- mutate_all(cutntagrmwt_quantify_list$featurecounts$pairsinfo, ~gsub("-", ".", .))
+
+cutntagrmwt_quantify_list[["featurecounts"]][["pairs"]] <- lapply(split(cutntagrmwt_quantify_list$featurecounts$pairsinfo[, c("groupbam", "controlbam")], cutntagrmwt_quantify_list$featurecounts$pairsinfo$id), function(x) as.vector(unlist(x)))
+cutntagrmwt_quantify_list[["featurecounts"]][["featuresmatrix"]] <- 
+  fn_quantify_featurecounts_multifeature("/mnt/home3/reid/av638/cutntag/iva_lab_feb2024/bams/", "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/integration/", "cutntagrmwt", "_sorted.bam", 
+                                         cutntagrmwt_quantify_list$featurecounts$featureslist, c(4,5,1:3,6), "hg38", "IgG",pe=TRUE, diff="multi", 
+                                         cutntagrmwt_quantify_list$featurecounts$pairs)
+
+# plot and add the regression line
+ggplot(cutntagrmwt_quantify_list$featurecounts$featuresmatrix$bins80kb$log_normalized_counts, aes(x=H14_S17_IgG_S22, y=FH14_S3_F_S6)) + 
+  geom_point(shape=18, color="#2c7bb0", size=1)+
+  geom_smooth(method=lm, color="darkred") + theme_classic()
+
+cutntagrmwt_quantify_list[["featurecounts"]][["featuresmatrixdiv"]] <- 
+  fn_quantify_featurecounts_multifeature_div("/mnt/home3/reid/av638/cutntag/iva_lab_feb2024/bams/", "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/integration/", "cutntagrmwt", "_sorted.bam", 
+                                         cutntagrmwt_quantify_list$featurecounts$featureslist, c(4,5,1:3,6), "hg38", "IgG",pe=TRUE, diff="multi", 
+                                         cutntagrmwt_quantify_list$featurecounts$pairs)
+
+
+# plot and add the regression line
+ggplot(cutntagrmwt_quantify_list$featurecounts$featuresmatrixdiv$bins80kb$log_normalized_counts, aes(x=H14_S17_IgG_S22, y=FH14_S3_F_S6)) + 
+  geom_point(shape=18, color="#2c7bb0", size=1)+
+  geom_smooth(method=lm, color="darkred") + theme_classic()
+
+cor(cutntagrmwt_quantify_list$featurecounts$featuresmatrixdiv$bins80kb$log_normalized_counts$H14_S17_IgG_S22, cutntagrmwt_quantify_list$featurecounts$featuresmatrixdiv$bins80kb$log_normalized_counts$FH14_S3_F_S6, method = 'pearson')
+
+# deeptools was for correlation analysis
+# import output
+cutntagrmwt_correlation_heatmap_divlog2 <- data.frame(fread("cutntagrmwt_correlation_heatmap_divlog2.txt", header = TRUE))
+rownames(cutntagrmwt_correlation_heatmap_divlog2) <- cutntagrmwt_correlation_heatmap_divlog2$V1
+cutntagrmwt_correlation_heatmap_divlog2 <- cutntagrmwt_correlation_heatmap_divlog2[,-1]
+colnames(cutntagrmwt_correlation_heatmap_divlog2) <- gsub("X.","",gsub(".divlog2.bw.", "", colnames(cutntagrmwt_correlation_heatmap_divlog2)))
+rownames(cutntagrmwt_correlation_heatmap_divlog2) <-  gsub("'","",gsub(".divlog2.bw.", "", rownames(cutntagrmwt_correlation_heatmap_divlog2)))
+pheatmap(as.matrix(cutntagrmwt_correlation_heatmap_divlog2), display_numbers = TRUE,  number_color = "black", legend_breaks = c(-1, 0, 1), fontsize_number = 7)
 
 
 #################################
