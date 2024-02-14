@@ -753,10 +753,10 @@ fn_summedreads_per_feature <- function(fearturecountmatrix, bamcountsreads, labe
 
 
 # aggregate value per feature
-fn_aggregate_feature <- function(annomatrix, columnstoaggregate, aggreagtebycolumn, operation){
+fn_aggregate_feature <- function(annomatrix, columnstoaggregate, aggregatebycolumn, operation){
   storelist <- list()
   message("aggregating...")
-  storelist[["aggregated"]] <- stats::aggregate(annomatrix[,columnstoaggregate], by=list(annomatrix[[aggreagtebycolumn]]), operation)
+  storelist[["aggregated"]] <- stats::aggregate(annomatrix[,columnstoaggregate], by=list(annomatrix[[aggregatebycolumn]]), operation)
   return(storelist)
 }
 
@@ -963,6 +963,22 @@ fn_go_term_analysis <- function(gene_list, organism){
       message("plotting barplot ...")
       plotBar <- ggbarplot(gost_gobp_bar_top, x = "term_name", y = "p_value", color = "#5d93c4ff", fill = "#5d93c4ff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = gsub("gost.","",names), lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
       storelist[[names]][["barplot"]] <- plotBar
+    }
+  }
+  return(storelist)
+}
+
+fn_scatterplot <- function(df){
+  storelist <- list()
+  for (i in colnames(df)){
+    for (j in colnames(df)){
+      message("sample in analysis: ",i," ",j)
+      message("plotting scatterplot...")
+      storelist[[paste0(i,"_",j)]][["scatter"]] <- ggplot(df, aes_string(x=i, y=j)) + geom_point(shape=18, color="#2c7bb0", size=1)+
+        geom_smooth(method=lm, color="red") + theme_classic()+
+        stat_cor(method = "pearson", label.x = -4, label.y = 5, r.digits = 3, aes(label = ..r.label..))
+      message("correlation analysis...")
+      storelist[[paste0(i,"_",j)]][["cor"]] <- cor(df[[i]], df[[j]], method = 'pearson')
     }
   }
   return(storelist)
@@ -1530,6 +1546,16 @@ atacseqkd_quantify_list[["featurecounts"]][["featuresmatrix_plots"]] <- fn_meta_
 
 ggplot(atacseqkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st, aes(x=col, y=value, color=id))  + geom_boxplot(width=0.7) + theme_classic()+ geom_hline(yintercept = 0, linetype="dotted")
 
+# remove none_up category
+atacseqkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st_sub <- dplyr::filter(atacseqkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st, !grepl('none_up', row))
+
+ggplot(atacseqkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st_sub, aes(x=col, y=value, color=id))  + geom_boxplot(width=0.7) + theme_classic()+ geom_hline(yintercept = 0, linetype="dotted")
+
+ggplot(atacseqkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st_sub, aes(x=col, y=value, col =id)) + 
+  geom_violin(aes(fill = id), color="black", trim = FALSE, position = position_dodge(0.9), size=0.25, width = 1) +
+  geom_boxplot(width = 0.1, position = position_dodge(0.9))  + theme_classic() + 
+  geom_hline(yintercept = 0, linetype="dotted")+ labs(title="ATAC-Seq KD", x ="Samples", y = "Sample-Control (normalized values)")
+
 ################################################
 ###         CUT&RUN data: Knockout SE        ###
 ################################################
@@ -1595,6 +1621,17 @@ ggplot(cutnrunko_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_u
   geom_violin(aes(color = id), trim = FALSE, position = position_dodge(0.9), size=0.25, width = 1.5) +
   geom_boxplot(aes(color = id), width = 0.05, position = position_dodge(0.9))  + theme_classic() + geom_hline(yintercept = 0, linetype="dotted")
 
+# remove none_up category
+cutnrunko_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st_sub <- dplyr::filter(cutnrunko_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st, !grepl('none_up', row))
+
+cutnrunko_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st_sub$col <- factor(cutnrunko_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st_sub$col, levels = c("H3K27me3_WT_IgG","H3K27me3_KO1_IgG","H3K27me3_KO2_IgG","H3K27me3_KO3_IgG"))
+
+ggplot(cutnrunko_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st_sub, aes(x=col, y=value, color=id))  + geom_boxplot(width=0.7) + theme_classic()+ geom_hline(yintercept = 0, linetype="dotted")
+
+ggplot(cutnrunko_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st_sub, aes(x=col, y=value, col =id)) + 
+  geom_violin(aes(fill = id), color="black", trim = FALSE, position = position_dodge(0.9), size=0.25, width = 1) +
+  geom_boxplot(width = 0.1, position = position_dodge(0.9))  + theme_classic() + 
+  geom_hline(yintercept = 0, linetype="dotted")+ labs(title="CUT&RUN KO", x ="Samples", y = "H3K27me3 level")
 
 # intersect with DE genes from RNA-Seq categories
 overlap_cutnrunko_rnaseqkd_de_genes_mat <- matrix(0,4,4)
@@ -1749,6 +1786,25 @@ cutnrunkd_quantify_list[["featurecounts"]][["featuresmatrix_plots"]] <- fn_meta_
 
 ggplot(cutnrunkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st, aes(x=col, y=value, color=id))  + geom_boxplot(width=0.7) + theme_classic()+ geom_hline(yintercept = 0, linetype="dotted")
 
+# remove none_up category
+cutnrunkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st_sub <- dplyr::filter(cutnrunkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st, !grepl('none_up', row))
+
+ggplot(cutnrunkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st_sub, aes(x=col, y=value, color=id))  + geom_boxplot(width=0.7) + theme_classic()+ geom_hline(yintercept = 0, linetype="dotted")
+
+ggplot(cutnrunkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st_sub, aes(x=col, y=value, col =id)) + 
+  geom_violin(aes(fill = id), color="black", trim = FALSE, position = position_dodge(0.9), size=0.25, width = 1) +
+  geom_boxplot(width = 0.1, position = position_dodge(0.9))  + theme_classic() + 
+  geom_hline(yintercept = 0, linetype="dotted")+ labs(title="CUT&RUN KD", x ="Samples", y = "H3K27me3 level")
+
+cutnrunkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff[["comparisons"]] <- list( c("shControl_IgG", "shCRAMP1_IgG"), c("shControl_IgG", "shSUZ12_IgG"), c("shSUZ12_IgG", "shCRAMP1_IgG") )
+
+# ggviolin(cutnrunkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st_sub, x = "col",
+#          y = "value",
+#          combine = TRUE, 
+#          color = "id", palette = "jco",
+#          add = "boxplot", width = 0.6) + stat_compare_means(comparisons = cutnrunkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$comparisons)
+
+# Add global the p-value
 ################################################
 ###         CUT&TAG data: Wildtype  SE       ###
 ################################################
@@ -1925,6 +1981,8 @@ ggplot(cutntagwkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_
 ##############################################################
 cutntagrmwt_quantify_list <- list()
 
+cutntagrmwt_path <- "/mnt/home3/reid/av638/cutntag/iva_lab_feb2024/bams/"
+
 # histone marks
 cutntagrmwt_quantify_list[["featurecounts"]] <- fn_quantify_featurecounts("/mnt/home3/reid/av638/cutntag/iva_lab_feb2024/bams", "cutntagrmwt","\\.bam$", "\\_peaks_id.bed$","histone_marks", c(12,4,1:3,7), pairedend=TRUE, "hg38", "_",merge_sites_files=FALSE)
 
@@ -1957,13 +2015,27 @@ cutntagrmwt_quantify_list$summed$merged_diff_table_afr <- t(cutntagrmwt_quantify
 rownames(cutntagrmwt_quantify_list$summed$merged_diff_table_afr) <- sapply(strsplit(rownames(cutntagrmwt_quantify_list$summed$merged_diff_table_afr), "_"), function(x) x[1])
 cutntagrmwt_quantify_list$summed$merged_diff_table_afr <- cutntagrmwt_quantify_list$summed$merged_diff_table_afr[order(rownames(cutntagrmwt_quantify_list$summed$merged_diff_table_afr)),]
 breaksListp <- seq(0, 0.2, by = 0.01)
-pheatmap::pheatmap(as.matrix(cutntagrmwt_quantify_list$summed$merged_diff_table_afr[c(14,15,16,2:6,7:12,18:22,1,13,17),]), na_col = "grey",breaks = breaksListp,
+pheatmap::pheatmap(as.matrix(cutntagrmwt_quantify_list$summed$merged_diff_table_afr[c(1,7,19,2:6,8:18,20:22),]), na_col = "grey",breaks = breaksListp,
                    color = colorRampPalette(c("white", "orange"))(length(breaksListp)),
                    clustering_distance_cols = "euclidean", cluster_rows = F, cluster_cols = F, clustering_method = "ward.D")
 
 pheatmap::pheatmap(as.matrix(cutntagrmwt_quantify_list$summed$merged_diff_table_afr), na_col = "grey",breaks = breaksListp,
                    color = colorRampPalette(c("white", "orange"))(length(breaksListp)),
                    clustering_distance_cols = "euclidean", cluster_rows = T, cluster_cols = T, clustering_method = "ward.D")
+
+# mean the histone marks
+cutntagrmwt_quantify_list$summed[["merged_diff_table_afr_st"]] <- data.frame(stack(as.matrix(do.call(cbind.data.frame, cutntagrmwt_quantify_list$summed$diff_table_afr))))
+cutntagrmwt_quantify_list$summed$merged_diff_table_afr_st[["id"]] <- paste0(sapply(strsplit(as.character(cutntagrmwt_quantify_list$summed$merged_diff_table_afr_st$row), "_"),function(x) x[1]), "%", as.character(cutntagrmwt_quantify_list$summed$merged_diff_table_afr_st$col))
+cutntagrmwt_quantify_list$summed[["aggregated"]] <- fn_aggregate_feature(cutntagrmwt_quantify_list$summed$merged_diff_table_afr_st, c(3), "id", mean)
+cutntagrmwt_quantify_list$summed$aggregated$aggregated[["histonemarks"]] <- sapply(strsplit(as.character(cutntagrmwt_quantify_list$summed$aggregated$aggregated$Group.1), "%"),function(x) x[1])
+cutntagrmwt_quantify_list$summed$aggregated$aggregated[["sample"]] <- sapply(strsplit(as.character(cutntagrmwt_quantify_list$summed$aggregated$aggregated$Group.1), "%"),function(x) x[2])
+cutntagrmwt_quantify_list$summed$aggregated$aggregated <- cutntagrmwt_quantify_list$summed$aggregated$aggregated[,-1]
+cutntagrmwt_quantify_list$summed[["histone_mark_df"]] <- data.frame(tidyr::pivot_wider(cutntagrmwt_quantify_list$summed$aggregated$aggregated, names_from = sample, values_from = x))
+rownames(cutntagrmwt_quantify_list$summed$histone_mark_df) <- cutntagrmwt_quantify_list$summed$histone_mark_df$histonemarks
+cutntagrmwt_quantify_list$summed$histone_mark_df <- cutntagrmwt_quantify_list$summed$histone_mark_df[,-1]
+pheatmap::pheatmap(as.matrix(t(cutntagrmwt_quantify_list$summed$histone_mark_df)[c(1,7,19,2:6,8:18,20:22),]), na_col = "grey",breaks = breaksListp,
+                   color = colorRampPalette(c("white", "darkred"))(length(breaksListp)),
+                   clustering_distance_cols = "euclidean", cluster_rows = F, cluster_cols = F, clustering_method = "ward.D")
 
 # for correlation remove controls as it interfere with stdev calculation
 corrplot::corrplot(cor(cutntagrmwt_quantify_list$summed$merged_diff_table_afr[-c(1,7,19),]))
@@ -2004,19 +2076,72 @@ cutntagrmwt_quantify_list[["featurecounts"]][["featuresmatrixdiv"]] <-
 # plot and add the regression line
 ggplot(cutntagrmwt_quantify_list$featurecounts$featuresmatrixdiv$bins80kb$log_normalized_counts, aes(x=H14_S17_IgG_S22, y=FH14_S3_F_S6)) + 
   geom_point(shape=18, color="#2c7bb0", size=1)+
-  geom_smooth(method=lm, color="darkred") + theme_classic()
+  geom_smooth(method=lm, color="darkred") + theme_classic()+
+  stat_cor(method = "pearson", label.x = -3, label.y = 8, r.digits = 3, aes(label = ..r.label..))
 
 cor(cutntagrmwt_quantify_list$featurecounts$featuresmatrixdiv$bins80kb$log_normalized_counts$H14_S17_IgG_S22, cutntagrmwt_quantify_list$featurecounts$featuresmatrixdiv$bins80kb$log_normalized_counts$FH14_S3_F_S6, method = 'pearson')
 
-# deeptools was for correlation analysis
-# import output
-cutntagrmwt_correlation_heatmap_divlog2 <- data.frame(fread("cutntagrmwt_correlation_heatmap_divlog2.txt", header = TRUE))
+# deeptools was for used correlation analysis
+# import output of plotCorrealtion
+# Heatmap/Correlation plot
+# ----------- divlog2 method  -----------------#
+# All samples
+cutntagrmwt_correlation_heatmap_divlog2 <- fread(paste0(cutntagrmwt_path, "cutntagrmwt_correlation_heatmap_divlog2.txt"), header = TRUE)
+colnames(cutntagrmwt_correlation_heatmap_divlog2) <- gsub("'","",colnames(cutntagrmwt_correlation_heatmap_divlog2))
+cutntagrmwt_correlation_heatmap_divlog2$V1 <- gsub("'","",cutntagrmwt_correlation_heatmap_divlog2$V1)
+cutntagrmwt_correlation_heatmap_divlog2 <- data.frame(cutntagrmwt_correlation_heatmap_divlog2)
 rownames(cutntagrmwt_correlation_heatmap_divlog2) <- cutntagrmwt_correlation_heatmap_divlog2$V1
 cutntagrmwt_correlation_heatmap_divlog2 <- cutntagrmwt_correlation_heatmap_divlog2[,-1]
-colnames(cutntagrmwt_correlation_heatmap_divlog2) <- gsub("X.","",gsub(".divlog2.bw.", "", colnames(cutntagrmwt_correlation_heatmap_divlog2)))
-rownames(cutntagrmwt_correlation_heatmap_divlog2) <-  gsub("'","",gsub(".divlog2.bw.", "", rownames(cutntagrmwt_correlation_heatmap_divlog2)))
-pheatmap(as.matrix(cutntagrmwt_correlation_heatmap_divlog2), display_numbers = TRUE,  number_color = "black", legend_breaks = c(-1, 0, 1), fontsize_number = 7)
+breaksList_cor = seq(-1, 1, by = 0.01)
+pheatmap(as.matrix(cutntagrmwt_correlation_heatmap_divlog2), display_numbers = TRUE,  number_color = "black", breaks = breaksList_cor, legend_breaks = c(-1, 0, 1), fontsize_number = 9, border_color = NA, color = colorRampPalette(rev(brewer.pal(n = 7, name ="RdYlBu")))(length(breaksList_cor)), clustering_distance_cols = "euclidean", clustering_method = "ward.D")
 
+# H1s endo
+H1endo_cutntagrmwt_correlation_heatmap_divlog2 <- fread(paste0(cutntagrmwt_path, "H1endo_cutntagrmwt_correlation_heatmap_divlog2.txt"), header = TRUE)
+colnames(H1endo_cutntagrmwt_correlation_heatmap_divlog2) <- gsub("'","",colnames(H1endo_cutntagrmwt_correlation_heatmap_divlog2))
+H1endo_cutntagrmwt_correlation_heatmap_divlog2$V1 <- gsub("'","",H1endo_cutntagrmwt_correlation_heatmap_divlog2$V1)
+H1endo_cutntagrmwt_correlation_heatmap_divlog2 <- data.frame(H1endo_cutntagrmwt_correlation_heatmap_divlog2)
+rownames(H1endo_cutntagrmwt_correlation_heatmap_divlog2) <- H1endo_cutntagrmwt_correlation_heatmap_divlog2$V1
+H1endo_cutntagrmwt_correlation_heatmap_divlog2 <- H1endo_cutntagrmwt_correlation_heatmap_divlog2[,-1]
+breaksList_cor = seq(-1, 1, by = 0.01)
+pheatmap(as.matrix(H1endo_cutntagrmwt_correlation_heatmap_divlog2), display_numbers = TRUE,  number_color = "black", breaks = breaksList_cor, legend_breaks = c(-1, 0, 1), fontsize_number = 9, border_color = NA, color = colorRampPalette(rev(brewer.pal(n = 7, name ="RdYlBu")))(length(breaksList_cor)), clustering_distance_cols = "euclidean", clustering_method = "ward.D")
+
+# spearman
+H1endo_cutntagrmwt_correlation_heatmap_divlog2_sp <- fread(paste0(cutntagrmwt_path, "H1endo_cutntagrmwt_correlation_heatmap_divlog2_sp.txt"), header = TRUE)
+colnames(H1endo_cutntagrmwt_correlation_heatmap_divlog2_sp) <- gsub("'","",colnames(H1endo_cutntagrmwt_correlation_heatmap_divlog2_sp))
+H1endo_cutntagrmwt_correlation_heatmap_divlog2_sp$V1 <- gsub("'","",H1endo_cutntagrmwt_correlation_heatmap_divlog2_sp$V1)
+H1endo_cutntagrmwt_correlation_heatmap_divlog2_sp <- data.frame(H1endo_cutntagrmwt_correlation_heatmap_divlog2_sp)
+rownames(H1endo_cutntagrmwt_correlation_heatmap_divlog2_sp) <- H1endo_cutntagrmwt_correlation_heatmap_divlog2_sp$V1
+H1endo_cutntagrmwt_correlation_heatmap_divlog2_sp <- H1endo_cutntagrmwt_correlation_heatmap_divlog2_sp[,-1]
+breaksList_sp = seq(0, 1, by = 0.01)
+pheatmap(as.matrix(H1endo_cutntagrmwt_correlation_heatmap_divlog2_sp), display_numbers = TRUE,  number_color = "black", breaks = breaksList_sp, legend_breaks = c(0, 1), fontsize_number = 9, border_color = NA, color = colorRampPalette((brewer.pal(n = 7, name ="RdYlBu")))(length(breaksList_sp)), clustering_distance_cols = "euclidean", clustering_method = "ward.D")
+
+# ----------- subtraction method -----------------#
+# All samples
+cutntagrmwt_correlation_heatmap_subtract <- fread(paste0(cutntagrmwt_path, "cutntagrmwt_correlation_heatmap_sub.txt"), header = TRUE)
+colnames(cutntagrmwt_correlation_heatmap_subtract) <- gsub("'","",colnames(cutntagrmwt_correlation_heatmap_subtract))
+cutntagrmwt_correlation_heatmap_subtract$V1 <- gsub("'","",cutntagrmwt_correlation_heatmap_subtract$V1)
+cutntagrmwt_correlation_heatmap_subtract <- data.frame(cutntagrmwt_correlation_heatmap_subtract)
+rownames(cutntagrmwt_correlation_heatmap_subtract) <- cutntagrmwt_correlation_heatmap_subtract$V1
+cutntagrmwt_correlation_heatmap_subtract <- cutntagrmwt_correlation_heatmap_subtract[,-1]
+breaksList_cor = seq(-1, 1, by = 0.01)
+pheatmap(as.matrix(cutntagrmwt_correlation_heatmap_subtract), display_numbers = TRUE,  number_color = "black", breaks = breaksList_cor, legend_breaks = c(-1, 0, 1), fontsize_number = 9, border_color = NA, color = colorRampPalette(rev(brewer.pal(n = 7, name ="RdYlBu")))(length(breaksList_cor)), clustering_distance_cols = "euclidean", clustering_method = "ward.D")
+
+# H1s samples
+H1endo_cutntagrmwt_correlation_heatmap_subtract <- fread(paste0(cutntagrmwt_path, "H1endo_cutntagrmwt_correlation_heatmap_sub.txt"), header = TRUE)
+colnames(H1endo_cutntagrmwt_correlation_heatmap_subtract) <- gsub("'","",colnames(H1endo_cutntagrmwt_correlation_heatmap_subtract))
+H1endo_cutntagrmwt_correlation_heatmap_subtract$V1 <- gsub("'","",H1endo_cutntagrmwt_correlation_heatmap_subtract$V1)
+H1endo_cutntagrmwt_correlation_heatmap_subtract <- data.frame(H1endo_cutntagrmwt_correlation_heatmap_subtract)
+rownames(H1endo_cutntagrmwt_correlation_heatmap_subtract) <- H1endo_cutntagrmwt_correlation_heatmap_subtract$V1
+H1endo_cutntagrmwt_correlation_heatmap_subtract <- H1endo_cutntagrmwt_correlation_heatmap_subtract[,-1]
+breaksList_cor = seq(-1, 1, by = 0.01)
+pheatmap(as.matrix(H1endo_cutntagrmwt_correlation_heatmap_subtract), display_numbers = TRUE,  number_color = "black", breaks = breaksList_cor, legend_breaks = c(-1, 0, 1), fontsize_number = 9, border_color = NA, color = colorRampPalette(rev(brewer.pal(n = 7, name ="RdYlBu")))(length(breaksList_cor)), clustering_distance_cols = "euclidean", clustering_method = "ward.D")
+
+# Scatter Plot
+cutntagrmwt_correlation_scatter_divlog2 <- data.frame(fread(paste0(cutntagrmwt_path, "cutntagrmwt_correlation_scores_per_bin_divlog2.tab"), header = TRUE))
+colnames(cutntagrmwt_correlation_scatter_divlog2) <- sapply(strsplit(colnames(cutntagrmwt_correlation_scatter_divlog2), "\\."), function(x) x[2])
+rownames(cutntagrmwt_correlation_scatter_divlog2) <- do.call(paste, c(cutntagrmwt_correlation_scatter_divlog2[,c(1:3)], sep="%"))
+cutntagrmwt_correlation_scatter_divlog2 <- cutntagrmwt_correlation_scatter_divlog2[,c(4:22)]
+cutntagrmwt_quantify_list[["deeptools"]][["scatterplot"]] <- fn_scatterplot(cutntagrmwt_correlation_scatter_divlog2)
 
 #################################
 ######## Public data ############
