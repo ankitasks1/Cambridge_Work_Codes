@@ -1043,6 +1043,12 @@ all(rownames(rnaseqkd_list$coldata) == colnames(rnaseqkd_list$processed_counts))
 # de analysis
 rnaseqkd_list[["deseq2"]] <- fn_deseq2(rnaseqkd_list$processed_counts, rnaseqkd_list$coldata, 0.05, 2)
 
+# with(rnaseqkd_list$deseq2$ma_plots$shC1_c1509$data, plot(mean, lfc, pch=19, cex = 0.3, main="Ma plot", xlim=c(0,15), col="grey", ylim=c(-8,8)))
+# #Upregulated
+# with(subset(rnaseqkd_list$deseq2$ma_plots$shC1_c1509$data, padj<.05 & lfc > 1), points(mean, lfc, pch=19, cex = 0.4, xlim=c(0,15), ylim=c(-8,8),lwd = 0.4, col="black",bg="grey"))
+# #Downregulated
+# with(subset(rnaseqkd_list$deseq2$ma_plots$shC1_c1509$data, padj<.05 & lfc < -1), points(mean, lfc, pch=19, cex = 0.4, xlim=c(0,15), ylim=c(-8,8), lwd = 0.4,col="black", bg="grey"))
+
 # Overlap between cramp1 and suz12 target genes
 # Venn diagram
 list_rnaseqkd_de_shC1_c1509_shS_c1509 <- list(shC1_c1509 = unique(rnaseqkd_list$deseq2$de_analysis$shC1_c1509$de$ensID_Gene), shS_c1509=unique(rnaseqkd_list$deseq2$de_analysis$shS_c1509$de$ensID_Gene))
@@ -1544,9 +1550,15 @@ atacseqkd_quantify_list[["featurecounts"]][["pairs"]] <- list(shCRAMP1_shControl
 atacseqkd_quantify_list[["featurecounts"]][["featuresmatrix"]] <- fn_quantify_featurecounts_multifeature("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/", "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/integration/", "atacseqkd", ".mLb.clN.sorted.bam", atacseqkd_quantify_list$featurecounts$featureslist, c(4,5,1:3,6), "hg38", "shControl",pe=TRUE, diff="multi", atacseqkd_quantify_list$featurecounts$pairs)
 atacseqkd_quantify_list[["featurecounts"]][["featuresmatrix_plots"]] <- fn_meta_plot(atacseqkd_quantify_list$featurecounts$featuresmatrix, c(7:10), rep=1, splitside=3)
 
+colnames(atacseqkd_quantify_list$featurecounts$featuresmatrix$bins5kb$bins5kb_countmatrix$hg38_5kb.txt$counts) <- gsub(".mLb.clN.sorted.bam", "", colnames(atacseqkd_quantify_list$featurecounts$featuresmatrix$bins5kb$bins5kb_countmatrix$hg38_5kb.txt$counts))
+
+plotPCA(edgeR::cpm(atacseqkd_quantify_list$featurecounts$featuresmatrix$bins5kb$bins5kb_countmatrix$hg38_5kb.txt$counts), label=TRUE)
+
 ggplot(atacseqkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st, aes(x=col, y=value, color=id))  + geom_boxplot(width=0.7) + theme_classic()+ geom_hline(yintercept = 0, linetype="dotted")
 
 atacseqkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st[["merge_rep"]] <- sapply(strsplit(as.character(atacseqkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st$col), "_"), function(x) paste0(x[1:2], collapse = "_"))
+atacseqkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st[["merge_rep_category"]] <- paste0(sapply(strsplit(as.character(atacseqkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st$col), "_"), function(x) paste0(x[1:2], collapse = "_")),"_", 
+                                                                                                                 as.character(atacseqkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st$id))
 
 # remove none_up category
 atacseqkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st_sub <- dplyr::filter(atacseqkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st, !grepl('none_up', row))
@@ -1558,12 +1570,15 @@ ggplot(atacseqkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_u
   geom_boxplot(width = 0.1, position = position_dodge(0.9))  + theme_classic() + 
   geom_hline(yintercept = 0, linetype="dotted")+ labs(title="ATAC-Seq KD", x ="Samples", y = "Sample-Control (normalized values)") 
 
+pairwise.wilcox.test(atacseqkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st_sub$value, atacseqkd_quantify_list$featurecounts$featuresmatrix_plots$selected_rkd_uniq_diff$df_st_sub$merge_rep_category,
+                     p.adjust.method = "BH")
+
 
 # histone marks
 atacseqkd_quantify_list[["featurecounts"]][["histonemarks"]] <- fn_quantify_featurecounts("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/", "atacseqkd","\\.bam$", "\\_peaks_id.bed$","histone_marks", c(12,4,1:3,7), pairedend=TRUE, "hg38", "_",merge_sites_files=FALSE)
 
 atacseqkd_quantify_list[["bams"]] <- fn_quantify_bams("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/", "atacseqkd","\\.bam$")
-atacseqkd_labelpath = "/mnt/home3/reid/av638/cutntag/iva_lab_oct23/outfolder/bowtie2/mergedLibrary/histone_marks_label.txt"
+atacseqkd_labelpath = "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/histone_marks_label.txt"
 atacseqkd_quantify_list[["featurecounts"]][["histonemarks"]][["summed"]] <- fn_summedreads_per_feature(atacseqkd_quantify_list$featurecounts$histonemarks$histone_marks_countmatrix, atacseqkd_quantify_list$bams$total_reads, atacseqkd_labelpath)
 
 # plot heatmap 
@@ -1606,9 +1621,25 @@ atacseqkd_quantify_list$featurecounts$histonemarks$summed$aggregated$aggregated 
 atacseqkd_quantify_list$featurecounts$histonemarks$summed[["histone_mark_df"]] <- data.frame(tidyr::pivot_wider(atacseqkd_quantify_list$featurecounts$histonemarks$summed$aggregated$aggregated, names_from = sample, values_from = x))
 rownames(atacseqkd_quantify_list$featurecounts$histonemarks$summed$histone_mark_df) <- atacseqkd_quantify_list$featurecounts$histonemarks$summed$histone_mark_df$histonemarks
 atacseqkd_quantify_list$featurecounts$histonemarks$summed$histone_mark_df <- atacseqkd_quantify_list$featurecounts$histonemarks$summed$histone_mark_df[,-1]
-pheatmap::pheatmap(as.matrix(t(atacseqkd_quantify_list$featurecounts$histonemarks$summed$histone_mark_df)), na_col = "grey",breaks = breaksListz,
+atacseqkd_quantify_list$featurecounts$histonemarks$summed$histone_mark_df["shCRAMP1"] <- rowMeans(atacseqkd_quantify_list$featurecounts$histonemarks$summed$histone_mark_df[,1:2])
+atacseqkd_quantify_list$featurecounts$histonemarks$summed$histone_mark_df["shSUZ12"] <- rowMeans(atacseqkd_quantify_list$featurecounts$histonemarks$summed$histone_mark_df[,3:4])
+atacseqkd_quantify_list$featurecounts$histonemarks$summed$histone_mark_df["shCRAMP1_median"] <- rowMedians(atacseqkd_quantify_list$featurecounts$histonemarks$summed$histone_mark_df[,1:2], cols=T)
+atacseqkd_quantify_list$featurecounts$histonemarks$summed$histone_mark_df["shSUZ12_median"] <- rowMedians(atacseqkd_quantify_list$featurecounts$histonemarks$summed$histone_mark_df[,3:4])
+pheatmap::pheatmap(as.matrix(t(atacseqkd_quantify_list$featurecounts$histonemarks$summed$histone_mark_df[,c(5:6)])), na_col = "grey",breaks = breaksListz,
                    color = colorRampPalette(c("white", "darkred"))(length(breaksListz)),
                    clustering_distance_cols = "euclidean", cluster_rows = F, cluster_cols = F, clustering_method = "ward.D")
+
+
+# All samples
+atacseqkd_bams_path <- "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/"
+atacseqkd_correlation_heatmap_divlog2 <- fread(paste0(atacseqkd_bams_path, "atacseqkd_correlation_heatmap_divlog2.txt"), header = TRUE)
+colnames(atacseqkd_correlation_heatmap_divlog2) <- gsub("'","",colnames(atacseqkd_correlation_heatmap_divlog2))
+atacseqkd_correlation_heatmap_divlog2$V1 <- gsub("'","",atacseqkd_correlation_heatmap_divlog2$V1)
+atacseqkd_correlation_heatmap_divlog2 <- data.frame(atacseqkd_correlation_heatmap_divlog2)
+rownames(atacseqkd_correlation_heatmap_divlog2) <- atacseqkd_correlation_heatmap_divlog2$V1
+atacseqkd_correlation_heatmap_divlog2 <- atacseqkd_correlation_heatmap_divlog2[,-1]
+breaksList_cor = seq(-1, 1, by = 0.01)
+pheatmap(as.matrix(atacseqkd_correlation_heatmap_divlog2), display_numbers = TRUE,  number_color = "black", breaks = breaksList_cor, legend_breaks = c(-1, 0, 1), fontsize_number = 9, border_color = NA, color = colorRampPalette(rev(brewer.pal(n = 7, name ="RdYlBu")))(length(breaksList_cor)), clustering_distance_cols = "euclidean", clustering_method = "ward.D")
 
 ################################################
 ###         CUT&RUN data: Knockout SE        ###
@@ -2091,9 +2122,9 @@ cutntagrmwt_quantify_list$summed$histone_mark_df <- cutntagrmwt_quantify_list$su
 pheatmap::pheatmap(as.matrix(t(cutntagrmwt_quantify_list$summed$histone_mark_df)[c(1,7,19,2:6,8:15,17:18,20:22),c(1,3,10:11,12,2,7:9,4,5,6)]), na_col = "grey",breaks = breaksListp,
                    color = colorRampPalette(c("white", "darkred"))(length(breaksListp)),
                    clustering_distance_cols = "euclidean", cluster_rows = F, cluster_cols = F, clustering_method = "ward.D")
-# remove H3K27me3 (RM/Iva suggested as it is too dark)
-breaksListp1 <- seq(0, 0.1, by = 0.01)
-pheatmap::pheatmap(as.matrix(t(cutntagrmwt_quantify_list$summed$histone_mark_df)[c(1,7,19,2:6,8:15,17:18),c(1,3,10:11,12,2,7:9,4,5,6)]), na_col = "grey",breaks = breaksListp1,
+# remove H3K27me3 (RM/Iva suggested as it is too dark) and H1Xs H1.5new
+breaksListp1 <- seq(0, 0.05, by = 0.01)
+pheatmap::pheatmap(as.matrix(t(cutntagrmwt_quantify_list$summed$histone_mark_df)[c(1,7,19,2:5,8:11,13:15,17),c(1,3,10:11,12,2,7:9,4,5,6)]), na_col = "grey",breaks = breaksListp1,border_color = "grey",
                    color = colorRampPalette(c("white", "darkred"))(length(breaksListp1)),
                    clustering_distance_cols = "euclidean", cluster_rows = F, cluster_cols = F, clustering_method = "ward.D")
 
@@ -2155,7 +2186,7 @@ cutntagrmwt_correlation_heatmap_divlog2 <- cutntagrmwt_correlation_heatmap_divlo
 breaksList_cor = seq(-1, 1, by = 0.01)
 pheatmap(as.matrix(cutntagrmwt_correlation_heatmap_divlog2), display_numbers = TRUE,  number_color = "black", breaks = breaksList_cor, legend_breaks = c(-1, 0, 1), fontsize_number = 9, border_color = NA, color = colorRampPalette(rev(brewer.pal(n = 7, name ="RdYlBu")))(length(breaksList_cor)), clustering_distance_cols = "euclidean", clustering_method = "ward.D")
 
-# All ENCODE mix
+# All ENCODE and GEO mix
 all_ENC_cutntagrmwt_correlation_heatmap_divlog2 <- fread(paste0(cutntagrmwt_path, "all_ENC_cutntagrmwt_correlation_heatmap_divlog2.txt"), header = TRUE)
 colnames(all_ENC_cutntagrmwt_correlation_heatmap_divlog2) <- gsub("'","",colnames(all_ENC_cutntagrmwt_correlation_heatmap_divlog2))
 all_ENC_cutntagrmwt_correlation_heatmap_divlog2$V1 <- gsub("'","",all_ENC_cutntagrmwt_correlation_heatmap_divlog2$V1)
@@ -2175,7 +2206,7 @@ H1endo_cutntagrmwt_correlation_heatmap_divlog2 <- H1endo_cutntagrmwt_correlation
 breaksList_cor = seq(-1, 1, by = 0.01)
 pheatmap(as.matrix(H1endo_cutntagrmwt_correlation_heatmap_divlog2), display_numbers = TRUE,  number_color = "black", breaks = breaksList_cor, legend_breaks = c(-1, 0, 1), fontsize_number = 9, border_color = NA, color = colorRampPalette(rev(brewer.pal(n = 7, name ="RdYlBu")))(length(breaksList_cor)), clustering_distance_cols = "euclidean", clustering_method = "ward.D")
 
-# H1s endo ENCODE mix
+# H1s endo ENCODE and GEO mix
 H1endo_ENC_cutntagrmwt_correlation_heatmap_divlog2 <- fread(paste0(cutntagrmwt_path, "H1endo_ENC_cutntagrmwt_correlation_heatmap_divlog2.txt"), header = TRUE)
 colnames(H1endo_ENC_cutntagrmwt_correlation_heatmap_divlog2) <- gsub("'","",colnames(H1endo_ENC_cutntagrmwt_correlation_heatmap_divlog2))
 H1endo_ENC_cutntagrmwt_correlation_heatmap_divlog2$V1 <- gsub("'","",H1endo_ENC_cutntagrmwt_correlation_heatmap_divlog2$V1)
