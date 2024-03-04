@@ -50,12 +50,13 @@ fn_read_genefile <- function(path, file){
   return(out)
 }
 
-# deseq2 based analysis
+# deseq2 import raw counts
 fn_dds_counts <- function(dds){
   counts <- DESeq2::counts(dds, normalized=FALSE)
   return(counts)
 }
 
+# deseq2 filter samples
 fn_sample_filter <- function(countmatrix, samplefilter, columnsremove){
   if (samplefilter == TRUE){
     countmatrix <- countmatrix[,-columnsremove] # columns is vector eg, c(7:9)
@@ -69,6 +70,7 @@ fn_sample_filter <- function(countmatrix, samplefilter, columnsremove){
   }
 }
 
+# deseq2 reassign gene names
 fn_reassign_genenames <- function(countmatrix, genedf, columnskeep){
   genecounts <- merge(countmatrix, genedf ,by.x = "ensID", by.y ="ensID", all.y =T)
   rownames(genecounts) <- genecounts$ens_gene
@@ -76,7 +78,8 @@ fn_reassign_genenames <- function(countmatrix, genedf, columnskeep){
   return(genecounts)
 }
 
-fn_make_coldata_dds <- function(dds, samplefilter,rowsremove){
+# deseq2 coldata
+fn_make_coldata_dds <- function(dds, samplefilter, rowsremove){
   if(samplefilter == TRUE){
     coldata <- data.frame(colData(dds))
     colnames(coldata) <- c("sample", "condition", "replicate", "sizeFactor")
@@ -93,6 +96,7 @@ fn_make_coldata_dds <- function(dds, samplefilter,rowsremove){
   }
 }
 
+# deseq2 prepare deseq2 matrix and perform differential analysis 
 fn_deseq2 <- function(counts, coldata, fdr, fc){
   storelist <- list()
   ddsO <- DESeq2::DESeqDataSetFromMatrix(countData = as.matrix(counts), colData = coldata, design = ~ condition)
@@ -139,12 +143,13 @@ fn_deseq2 <- function(counts, coldata, fdr, fc){
   return(storelist)
 }
 
-
+# deseq2 plot venn diagram
 fn_plot_venn <- function(list, color){
   ggvenn_list_venn <- ggvenn(list, fill_color = color, stroke_size = 0.5, set_name_size = 4)
   return(ggvenn_list_venn)
 }
-# edger based analysis
+
+# edger create coldata/design, normalise, fit, mds plot
 fn_edger_create <- function(data, coldata){
   storelist <- list()
   message("creating group... ")
@@ -176,6 +181,7 @@ fn_edger_create <- function(data, coldata){
   return(storelist)
 }
 
+# edger differential analysis
 fn_edger_de <- function(lmfit, design, fdr, fc){  
   storelist <- list()
   delist <- list()
@@ -195,7 +201,7 @@ fn_edger_de <- function(lmfit, design, fdr, fc){
 }
 
 
-# diffbind based analysis
+# diffbind prepare object
 fn_diffbind_prep <- function(samplesheet){
   diffblist <- list()
   # Creating diffbind object 
@@ -207,6 +213,7 @@ fn_diffbind_prep <- function(samplesheet){
   return(diffblist)
 }
 
+# diffbind get counts
 fn_diffbind_count <- function(obj, summit){
   diffblist <- list()
   # Calculate a binding matrix with scores based on read counts,  summits=100 for ATAC-Seq # https://www.biostars.org/p/9493721/
@@ -215,6 +222,7 @@ fn_diffbind_count <- function(obj, summit){
   return(diffblist)
 }
 
+# diffbind normalize counts
 fn_diffbind_norm <- function(obj){
   diffblist <- list()
   message("Performing normalisation...")
@@ -226,6 +234,7 @@ fn_diffbind_norm <- function(obj){
   return(diffblist)
 }
 
+# diffbind differential analysis
 fn_diffbind_de <- function(normobj, fdr, fc, method){
   contrastlist <- list()
   diffblist <- list()
@@ -269,7 +278,7 @@ fn_diffbind_de <- function(normobj, fdr, fc, method){
 }
 
 
-# limma based analysis
+# limma create object
 fn_limma_create <- function(data, coldata){
   storelist <- list()
   message(" creating design ... ")
@@ -287,6 +296,7 @@ fn_limma_create <- function(data, coldata){
   return(storelist)
 }
 
+# limma differential analysis
 fn_limma_de <- function(lmfit, contrasts, fdr, fc){
   message("Performing second fit...")
   storelist <- list()
@@ -308,7 +318,7 @@ fn_limma_de <- function(lmfit, contrasts, fdr, fc){
   return(storelist)
 }
 
-# annotation to genes and nearest distance filter for all packages
+# diffbind annotation to genes and nearest distance filter for all packages
 fn_diffbind_gene_anno <- function(assaytype, software, contrasts, genefile, path, outformat, fdr, fc){
   contrastlist <- list()
   for (i in names(contrasts)){
@@ -342,6 +352,7 @@ fn_diffbind_gene_anno <- function(assaytype, software, contrasts, genefile, path
   return(contrastlist)
 }
 
+# diffbind annotation to genes and nearest distance filter for all packages on diffbind derived counts
 fn_diffbind_and_packages_gene_anno <- function(assaytype, software, contrasts, genefile, path, outformat, fdr, fc){
   contrastlist <- list()
   for (i in names(contrasts)){
@@ -398,6 +409,7 @@ fn_diffbind_and_packages_gene_anno <- function(assaytype, software, contrasts, g
   return(contrastlist)
 }
 
+# diffbind consensus gene annotation (consensus peaks from nextflow output but can be applied to other sets)
 fn_consensus_gene_anno <- function(assaytype, software, contrasts, consensus_bed, genefile, path, outformat, fdr, fc){
   message("writing consensus peaks data...")
   write.table(consensus_bed, paste0(path,"/",assaytype, "_","consensus_peaks.",outformat), sep="\t", quote = F, append = F, row.names = F, col.names = F)
@@ -461,6 +473,7 @@ fn_consensus_gene_anno <- function(assaytype, software, contrasts, consensus_bed
   return(contrastlist)
 }
 
+# diffbind consensus gene annotation for normalized count matrix (consensus peaks from nextflow output but can be applied to other sets)
 fn_consensus_gene_count_anno <- function(assaytype, software, normcountmatrix, consensus_bed, genefile, path, outformat){
   message("writing consensus peaks data...")
   write.table(consensus_bed, paste0(path,"/",assaytype, "_","consensus_peaks.",outformat), sep="\t", quote = F, append = F, row.names = F, col.names = F)
@@ -491,11 +504,13 @@ fn_consensus_gene_count_anno <- function(assaytype, software, normcountmatrix, c
   return(storelist)
 }
 
-# run chipseeker
+# chipseeker
 "peakformat=*.broadPeak"
 "txdb=TxDb.Hsapiens.UCSC.hg38.knownGene"
 "org_db=org.Hs.eg.db"
 "assaytype=atacseqkd"
+
+# chipseeker run 
 fn_run_chipseeker <- function(peaks_path, assaytype, txdb, org_db, peakformat){
   storelist <- list()
   peakfiles <- list.files(path=peaks_path,pattern = peakformat)
@@ -529,6 +544,8 @@ fn_run_chipseeker <- function(peaks_path, assaytype, txdb, org_db, peakformat){
   return(storelist)
 }
 
+
+# chipseeker run and annotation
 fn_chipseeker_region_anno <- function(assaytype, software, contrasts, region_bed, path, txdb, org_db, regionformat, fdr, fc){
   message("writing region bed data...", regionformat)
   write.table(region_bed, paste0(path, "/", assaytype, "_chipseeker_", software, "_", regionformat), sep="\t", quote = F, append = F, row.names = F, col.names = F)
@@ -609,6 +626,8 @@ fn_chipseeker_region_anno <- function(assaytype, software, contrasts, region_bed
 # bedfile = "_chr.bedpe"
 # sites_file = "atac_shControl_merged.txt"
 
+
+# bedtools quantify for bam filesinside given sites
 fn_quantify_bedtools <- function(peaks_path, assaytype, bamfile, bedfile ,sites_file){
   bam_files <- list.files(peaks_path, pattern = bamfile, full.names = TRUE)
   for (bam_file in bam_files) {
@@ -620,7 +639,7 @@ fn_quantify_bedtools <- function(peaks_path, assaytype, bamfile, bedfile ,sites_
   }
 }
 
-# quantify per feature in a given interval using featurecounts
+# featurecounts quantify per feature in a given interval 
 fn_quantify_featurecounts <- function(peaks_path, assaytype, bamfiles, sites_files, sites_type, sites_column_to_rearrange, pairedend=FALSE, refgenome, delim, merge_sites_files=FALSE){
   storelist <- list()
   bam_files <- list.files(peaks_path, pattern = bamfiles, full.names = TRUE)
@@ -641,7 +660,7 @@ fn_quantify_featurecounts <- function(peaks_path, assaytype, bamfiles, sites_fil
   return(storelist)
 }
 
-# quantify for multiple feature using featurecounts subtract
+# featurecounts quantify for multiple features  subtract
 fn_quantify_featurecounts_multifeature <- function(assay_bam_path, feature_path, assay, bam_extension, feature_list, columnstorearrange, ref, control,pe=FALSE, diff="single", pairs){
   storelist <- list()
   for (i in names(feature_list)){
@@ -671,7 +690,7 @@ fn_quantify_featurecounts_multifeature <- function(assay_bam_path, feature_path,
   }
   return(storelist)
 }
-# quantify for multiple feature using featurecounts_div
+# featurecounts quantify for multiple feature using featurecounts_div
 fn_quantify_featurecounts_multifeature_div <- function(assay_bam_path, feature_path, assay, bam_extension, feature_list, columnstorearrange, ref, control,pe=FALSE, diff="single", pairs){
   storelist <- list()
   for (i in names(feature_list)){
@@ -702,8 +721,7 @@ fn_quantify_featurecounts_multifeature_div <- function(assay_bam_path, feature_p
   return(storelist)
 }
 
-
-# quantify reads in a given bam files
+# Rsamtools quantify reads in a given bam files
 fn_quantify_bams <- function(peaks_path, assaytype, bamfiles){
   storelist <- list()
   bam_files <- list.files(peaks_path, pattern = bamfiles, full.names = TRUE)
@@ -760,6 +778,7 @@ fn_aggregate_feature <- function(annomatrix, columnstoaggregate, aggregatebycolu
   return(storelist)
 }
 
+# pca using counts
 fn_make_pca <- function(counts, file_extension, attribute){
   storelist <- list()
   message("filtering the counts for zero rowsums...")
@@ -820,7 +839,7 @@ fn_integrate_bedtools <- function(omics_data_path_lists, binsize, columns_pos, c
 
 source("/mnt/beegfs6/home3/reid/av638/atacseq/iva_lab_gencode/integration/upset_out.R")
 
-# general MA plot using ggplot2
+# ggmaplot maplot 
 fn_maplot <- function(df, columnbyorder, fdr, fc){
   plotlist <- list()
   message("rearranging and plotting ma...")
@@ -831,6 +850,7 @@ fn_maplot <- function(df, columnbyorder, fdr, fc){
            font.label = c("bold", 5), font.legend = "bold", font.main = "bold", ggtheme = ggplot2::theme_minimal())
 }
 
+# ggplot maplot 
 fn_maplot_general <- function(df, columnbyorder, fdr, logfc){
   plotlist <- list()
   message("rearranging and plotting ma...")
@@ -849,6 +869,7 @@ fn_maplot_general <- function(df, columnbyorder, fdr, logfc){
              hjust = 1, vjust = 1, color = "black")
 }
 
+# deseq2 maplot using ggplot2 using shirnkage
 fn_maplot_general_shrinkage <- function(df, columnbyorder, fdr, logfc){
   plotlist <- list()
   message("rearranging and plotting ma...")
@@ -867,7 +888,7 @@ fn_maplot_general_shrinkage <- function(df, columnbyorder, fdr, logfc){
              hjust = 1, vjust = 1, color = "black")
 }
 
-
+# rearrange groups
 fn_rearrange_groups <- function(grouplist){
   storelist <- list()
   for (i in grouplist){
@@ -883,7 +904,7 @@ fn_rearrange_groups <- function(grouplist){
   return(storelist_df)
 }
 
-
+# ggplot meta plots
 fn_meta_plot <- function(featurematrix, columnstoplot, multi=FALSE, value="value",color="col", linetype="col", rep, splitside=3, colorbyid=FALSE){
   storelist <- list()
   for (i in names(featurematrix)){
@@ -917,6 +938,7 @@ fn_meta_plot <- function(featurematrix, columnstoplot, multi=FALSE, value="value
   return(storelist)
 }
 
+# bedtools annotation
 fn_annotate_peaks_to_genes <- function(peakfileslist, genefile, path, assaytype, software, outformat){
   for (i in peakfileslist){
     print(i)
@@ -939,6 +961,7 @@ fn_annotate_peaks_to_genes <- function(peakfileslist, genefile, path, assaytype,
   }
 }
 
+# gprofiler go term analysis
 fn_go_term_analysis <- function(gene_list, organism){
   storelist <- list()
   for (names in names(gene_list)) {
@@ -968,6 +991,7 @@ fn_go_term_analysis <- function(gene_list, organism){
   return(storelist)
 }
 
+# ggplot scatter
 fn_scatterplot <- function(df){
   storelist <- list()
   for (i in colnames(df)){
@@ -984,7 +1008,7 @@ fn_scatterplot <- function(df){
   return(storelist)
 }
 
-
+# chipseeker pie plot
 fn_replot_pie_chipseeker <- function(gr_anno){
   storelist <- list()
   pie_data_gr_anno_all <- c()
