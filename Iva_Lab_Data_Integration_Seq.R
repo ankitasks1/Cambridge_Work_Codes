@@ -984,6 +984,21 @@ fn_scatterplot <- function(df){
   return(storelist)
 }
 
+
+fn_replot_pie_chipseeker <- function(gr_anno){
+  storelist <- list()
+  pie_data_gr_anno_all <- c()
+  for (i in names(gr_anno)){
+    print(i)
+    pie_data_gr_anno <- gr_anno[[i]]@annoStat
+    pie_data_gr_anno["sample"] <- i
+    pie_data_gr_anno_all <- rbind.data.frame(pie_data_gr_anno_all, pie_data_gr_anno)
+  }
+  storelist[["df_st"]] <- pie_data_gr_anno_all 
+  return(storelist)
+}
+
+
 ###########################################
 ####  common_files among all datasets   ###
 ###########################################
@@ -1274,12 +1289,13 @@ atacseqkd_diffbind_list[["dar_analysis"]][["deseq2"]] <- fn_diffbind_de(atacseqk
 
 atacseqkd_diffbind_list[["gene"]] <- fn_read_genefile("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/integration/", "gene_gencode_human_upstream_2kb.sorted.txt")
 
-atacseqkd_diffbind_list[["annotation"]][["edgeR"]] <- fn_diffbind_gene_anno("atacseqkd", "diffbind",atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts, atacseqkd_diffbind_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt", 0.05, 2)
 atacseqkd_diffbind_list[["annotation"]][["deseq2"]] <- fn_diffbind_gene_anno("atacseqkd", "diffbind",atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts, atacseqkd_diffbind_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt", 0.05, 2)
+atacseqkd_diffbind_list[["annotation"]][["edgeR"]] <- fn_diffbind_gene_anno("atacseqkd", "diffbind",atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts, atacseqkd_diffbind_list$gene, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder", "txt", 0.05, 2)
 
 atacseqkd_diffbind_list[["chipseeker"]][["annotation"]][["deseq2"]] <- fn_chipseeker_region_anno("atacseqkd", "diffbind",atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts, atacseqkd_diffbind_list$regions, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/", TxDb.Hsapiens.UCSC.hg38.knownGene, "org.Hs.eg.db", "region_bed.txt", 0.05, 2) 
 atacseqkd_diffbind_list[["chipseeker"]][["annotation"]][["edgeR"]] <- fn_chipseeker_region_anno("atacseqkd", "diffbind",atacseqkd_diffbind_list$dar_analysis$edger$contrasts, atacseqkd_diffbind_list$regions, "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/", TxDb.Hsapiens.UCSC.hg38.knownGene, "org.Hs.eg.db", "region_bed.txt", 0.05, 2) 
 
+# since we need only deseq2 results for downstream analysis, I perform mean analysis with deseq2
 atacseqkd_diffbind_list[["aggregate_pergene"]][["deseq2"]][["contrast_shCRAMP1_shControl"]][["nearest"]][["de"]] <- fn_aggregate_feature(atacseqkd_diffbind_list$annotation$deseq2$contrast_shCRAMP1_shControl$nearest$de, c(9), "ens_gene", mean)
 atacseqkd_diffbind_list[["aggregate_pergene"]][["deseq2"]][["contrast_shSUZ12_shControl"]][["nearest"]][["de"]] <- fn_aggregate_feature(atacseqkd_diffbind_list$annotation$deseq2$contrast_shSUZ12_shControl$nearest$de, c(9), "ens_gene", mean)
 
@@ -1292,6 +1308,7 @@ atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shSUZ12_shControl[
 atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts$contrast_shCRAMP1_shControl[["maplot"]] <- fn_maplot(atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts$contrast_shCRAMP1_shControl$all, c(6,9,11,12), 0.05, 2)
 atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts$contrast_shSUZ12_shControl[["maplot"]] <- fn_maplot(atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts$contrast_shSUZ12_shControl$all, c(6,9,11,12), 0.05, 2)
 
+# e= edger and d= deseq2
 write.table(atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shCRAMP1_shControl$de[,c(1:3,9,11:12)] %>% distinct(), "atacseqkd_diffbind_e_shCRAMP1_shControl_de.bed", sep="\t", quote = F, append = F, row.names = F, col.names = F)
 write.table(atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shSUZ12_shControl$de[,c(1:3,9,11:12)] %>% distinct(), "atacseqkd_diffbind_e_shSUZ12_shControl_de.bed", sep="\t", quote = F, append = F, row.names = F, col.names = F)
 write.table(atacseqkd_diffbind_list$dar_analysis$deseq2$contrasts$contrast_shCRAMP1_shControl$de[,c(1:3,9,11:12)] %>% distinct(), "atacseqkd_diffbind_d_shCRAMP1_shControl_de.bed", sep="\t", quote = F, append = F, row.names = F, col.names = F)
@@ -1318,17 +1335,18 @@ atacseqkd_diffbind_counts <- data.frame(atacseqkd_diffbind_list$counts$counts)
 rownames(atacseqkd_diffbind_counts) <- paste0(atacseqkd_diffbind_counts$CHR, "%",atacseqkd_diffbind_counts$START,"%", atacseqkd_diffbind_counts$END)
 atacseqkd_diffbind_counts <- atacseqkd_diffbind_counts[,-c(1:3)]
 
-atacseqkd_diffbind_list[["binding_mat"]] <- data.frame(atacseqkd_diffbind_list$counts$dba_obj$binding[,c(1:3)])
-atacseqkd_diffbind_list$binding_mat$CHR <- paste0("chr",atacseqkd_diffbind_list$binding_mat$CHR)
+# atacseqkd_diffbind_list[["binding_mat"]] <- data.frame(atacseqkd_diffbind_list$counts$dba_obj$binding[,c(1:3)])
+# atacseqkd_diffbind_list$binding_mat$CHR <- paste0("chr",atacseqkd_diffbind_list$binding_mat$CHR)
+
 length(intersect(
 do.call(paste, c(atacseqkd_diffbind_list$counts$counts[,c(1:3)], sep="%")),
 do.call(paste, c(atacseqkd_diffbind_list$dar_analysis$edgeR$contrasts$contrast_shCRAMP1_shControl$all[,c(1:3)], sep="%"))
 ))
 
-length(intersect(
-  do.call(paste, c(atacseqkd_diffbind_list$counts$counts[,c(1:3)], sep="%")),
-  do.call(paste, c(atacseqkd_diffbind_list$binding_mat, sep="%"))
-))
+# length(intersect(
+#   do.call(paste, c(atacseqkd_diffbind_list$counts$counts[,c(1:3)], sep="%")),
+#   do.call(paste, c(atacseqkd_diffbind_list$binding_mat, sep="%"))
+# ))
 
 # diffbind_deseq2 
 atacseqkd_diffbind_deseq2_list <- list()
@@ -1358,6 +1376,14 @@ list_atacseqkd_diffbind_deseq2_de_shCRAMP1_shSUZ12_shControl <- list(shCRAMP1 = 
 fn_plot_venn(list_atacseqkd_diffbind_deseq2_de_shCRAMP1_shSUZ12_shControl, c("#0073C2FF", "#EFC000FF","#0073C2FF", "#EFC000FF"))
 
 plotPCA(atacseqkd_diffbind_deseq2_list$dar_analysis$vstO, intgroup="ID", returnData=FALSE)
+
+
+# DE deseq2 manually from diffbind mean the logFC per peaks to specify genes
+atacseqkd_diffbind_deseq2_list[["aggregate_pergene"]][["deseq2"]][["shCRAMP1_shControl"]][["nearest"]][["de"]] <- fn_aggregate_feature(atacseqkd_diffbind_deseq2_list$annotation$shCRAMP1_shControl$nearest$de, c(5), "ens_gene", mean)
+colnames(atacseqkd_diffbind_deseq2_list$aggregate_pergene$deseq2$shCRAMP1_shControl$nearest$de$aggregated) <- c("ensID_Gene", "mean_log2FC")
+
+atacseqkd_diffbind_deseq2_list[["aggregate_pergene"]][["deseq2"]][["shSUZ12_shControl"]][["nearest"]][["de"]] <- fn_aggregate_feature(atacseqkd_diffbind_deseq2_list$annotation$shSUZ12_shControl$nearest$de, c(5), "ens_gene", mean)
+colnames(atacseqkd_diffbind_deseq2_list$aggregate_pergene$deseq2$shSUZ12_shControl$nearest$de$aggregated) <- c("ensID_Gene", "mean_log2FC")
 
 
 # edgeR analysis
@@ -1575,8 +1601,10 @@ pairwise.wilcox.test(atacseqkd_quantify_list$featurecounts$featuresmatrix_plots$
 
 
 # histone marks
+# quantify bam files in a given histone mark peak coordinates
 atacseqkd_quantify_list[["featurecounts"]][["histonemarks"]] <- fn_quantify_featurecounts("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/", "atacseqkd","\\.bam$", "\\_peaks_id.bed$","histone_marks", c(12,4,1:3,7), pairedend=TRUE, "hg38", "_",merge_sites_files=FALSE)
 
+# quantify total reads in a bam file, used Rsamtools
 atacseqkd_quantify_list[["bams"]] <- fn_quantify_bams("/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/", "atacseqkd","\\.bam$")
 atacseqkd_labelpath = "/mnt/home3/reid/av638/atacseq/iva_lab_gencode/boutfolder/bowtie2/merged_library/histone_marks_label.txt"
 atacseqkd_quantify_list[["featurecounts"]][["histonemarks"]][["summed"]] <- fn_summedreads_per_feature(atacseqkd_quantify_list$featurecounts$histonemarks$histone_marks_countmatrix, atacseqkd_quantify_list$bams$total_reads, atacseqkd_labelpath)
@@ -1593,13 +1621,13 @@ write.table(atacseqkd_quantify_list$featurecounts$histonemarks$summed$all_featur
 atacseqkd_quantify_list$featurecounts$histonemarks$summed[["diff_table_afr"]] <- NULL
 for (i in c("shCRAMP1_REP1", "shCRAMP1_REP2","shSUZ12_REP1","shSUZ12_REP2")){
   if(i == "shCRAMP1_REP1"){
-    atacseqkd_quantify_list$featurecounts$histonemarks$summed[["diff_table_afr"]][["shCRAMP1_REP1"]] <- atacseqkd_quantify_list$featurecounts$histonemarks$summed$table_afr[grepl(i, colnames(atacseqkd_quantify_list$featurecounts$histonemarks$summed$table_afr))] - atacseqkd_quantify_list$featurecounts$histonemarks$summed$table_afr[["shControl_REP1"]]
+    atacseqkd_quantify_list$featurecounts$histonemarks$summed[["diff_table_afr"]][[i]] <- atacseqkd_quantify_list$featurecounts$histonemarks$summed$table_afr[grepl(i, colnames(atacseqkd_quantify_list$featurecounts$histonemarks$summed$table_afr))] - atacseqkd_quantify_list$featurecounts$histonemarks$summed$table_afr[["shControl_REP1"]]
   }else if(i == "shCRAMP1_REP2"){
-    atacseqkd_quantify_list$featurecounts$histonemarks$summed[["diff_table_afr"]][["shCRAMP1_REP2"]] <- atacseqkd_quantify_list$featurecounts$histonemarks$summed$table_afr[grepl(i, colnames(atacseqkd_quantify_list$featurecounts$histonemarks$summed$table_afr))] - atacseqkd_quantify_list$featurecounts$histonemarks$summed$table_afr[["shControl_REP2"]]
+    atacseqkd_quantify_list$featurecounts$histonemarks$summed[["diff_table_afr"]][[i]] <- atacseqkd_quantify_list$featurecounts$histonemarks$summed$table_afr[grepl(i, colnames(atacseqkd_quantify_list$featurecounts$histonemarks$summed$table_afr))] - atacseqkd_quantify_list$featurecounts$histonemarks$summed$table_afr[["shControl_REP2"]]
   }else if(i == "shSUZ12_REP1"){
-    atacseqkd_quantify_list$featurecounts$histonemarks$summed[["diff_table_afr"]][["shSUZ12_REP1"]] <- atacseqkd_quantify_list$featurecounts$histonemarks$summed$table_afr[grepl(i, colnames(atacseqkd_quantify_list$featurecounts$histonemarks$summed$table_afr))] - atacseqkd_quantify_list$featurecounts$histonemarks$summed$table_afr[["shControl_REP1"]]
+    atacseqkd_quantify_list$featurecounts$histonemarks$summed[["diff_table_afr"]][[i]] <- atacseqkd_quantify_list$featurecounts$histonemarks$summed$table_afr[grepl(i, colnames(atacseqkd_quantify_list$featurecounts$histonemarks$summed$table_afr))] - atacseqkd_quantify_list$featurecounts$histonemarks$summed$table_afr[["shControl_REP1"]]
   }else if(i == "shSUZ12_REP2"){
-    atacseqkd_quantify_list$featurecounts$histonemarks$summed[["diff_table_afr"]][["shSUZ12_REP2"]] <- atacseqkd_quantify_list$featurecounts$histonemarks$summed$table_afr[grepl(i, colnames(atacseqkd_quantify_list$featurecounts$histonemarks$summed$table_afr))] - atacseqkd_quantify_list$featurecounts$histonemarks$summed$table_afr[["shControl_REP2"]]
+    atacseqkd_quantify_list$featurecounts$histonemarks$summed[["diff_table_afr"]][[i]] <- atacseqkd_quantify_list$featurecounts$histonemarks$summed$table_afr[grepl(i, colnames(atacseqkd_quantify_list$featurecounts$histonemarks$summed$table_afr))] - atacseqkd_quantify_list$featurecounts$histonemarks$summed$table_afr[["shControl_REP2"]]
   }
 }
 atacseqkd_quantify_list$featurecounts$histonemarks$summed[["merged_diff_table_afr"]]<- do.call(cbind.data.frame, atacseqkd_quantify_list$featurecounts$histonemarks$summed$diff_table_afr)
@@ -2256,19 +2284,6 @@ cutntagrmwt_quantify_list[["deeptools"]][["scatterplot"]] <- fn_scatterplot(cutn
 
 # Annotation peaks
 cutntagrmwt_quantify_list[["chipseeker"]][["plots"]] <- fn_run_chipseeker("/mnt/home3/reid/av638/cutntag/iva_lab_feb2024/bams/endoH1peaks/", "cutntagrmwt", TxDb.Hsapiens.UCSC.hg38.knownGene, "org.Hs.eg.db", "*.broadPeak")
-
-fn_replot_pie_chipseeker <- function(gr_anno){
-  storelist <- list()
-  pie_data_gr_anno_all <- c()
-  for (i in names(gr_anno)){
-    print(i)
-    pie_data_gr_anno <- gr_anno[[i]]@annoStat
-    pie_data_gr_anno["sample"] <- i
-    pie_data_gr_anno_all <- rbind.data.frame(pie_data_gr_anno_all, pie_data_gr_anno)
-  }
-  storelist[["df_st"]] <- pie_data_gr_anno_all 
-  return(storelist)
-}
 
 cutntagrmwt_quantify_list[["chipseeker"]][["plots"]][["pie_annodf"]] <- fn_replot_pie_chipseeker(cutntagrmwt_quantify_list$chipseeker$plots$gr_anno)
 cutntagrmwt_quantify_list$chipseeker$plots$pie_annodf$df_st$sample <- gsub("endo|_peaks.broadPeak","",cutntagrmwt_quantify_list$chipseeker$plots$pie_annodf$df_st$sample)
