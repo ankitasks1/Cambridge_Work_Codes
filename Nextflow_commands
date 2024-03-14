@@ -1,17 +1,19 @@
-### RNA-Seq
+## RNA-Seq
 
-#July 2022 iva_lab_gencode CRAMP1_knockout
+### July 2022 iva_lab_gencode CRAMP1_knockout
 samplesheet.csv was prepared manually
 #Gencode With gurdon.config and default of nf-core/rna-seq
 /mnt/home3/slurm/slurm_sub.py nextflow -log myrun.log run nf-core/rnaseq  -r 3.8.1 -profile singularity --outdir outfolder --input samplesheet.csv --fasta GRCh38.p13.genome.fa --gtf GRCh38.gencode.v41.chr_patch_hapl_scaff.annotation.gtf -c /mnt/home3/nextflow/gurdon.config --save_reference --gencode
 
-#Jan 2023 iva_lab_gencode CRAMP1_knockdown
+### Jan 2023 iva_lab_gencode CRAMP1_knockdown
 ##Prepare_sample_sheet for nextflow
 ls *.fastq.gz -1 | awk -F'_' '{print $1}' | sort -k1,1 -u | awk '{print $1"\t"$1"_R1_001.fastq.gz""\t"$1"_R2_001.fastq.gz""\t""reverse"}' | awk '{gsub("-","_",$1);print $0}' | awk '{print $1","$2","$3","$4}' | sed '1s/^/sample,fastq_1,fastq_2,strandedness\n/' > samplesheet.csv
 #Gencode With gurdon.config and default of nf-core/rna-seq
 /mnt/home3/slurm/slurm_sub.py nextflow -log myrun.log run nf-core/rnaseq  -r 3.8.1 -profile singularity --outdir outfolder --input samplesheet.csv --fasta GRCh38.p13.genome.fa --gtf GRCh38.gencode.v41.chr_patch_hapl_scaff.annotation.gtf -c /mnt/home3/nextflow/gurdon.config --save_reference --gencode
 
-#Oct 2023 iva_lab_gencode CRAMP1_knockdown
+### Oct 2023 iva_lab_gencode CRAMP1_knockdown
 samplesheet.csv was prepared manually
 #Gencode With gurdon.config and default of nf-core/rna-seq
 /mnt/home3/slurm/slurm_sub.py nextflow -log myrun.log run nf-core/rnaseq  -r 3.12.0 -profile singularity --outdir outfolder --input samplesheet.csv --fasta GRCh38.p13.genome.fa --gtf GRCh38.gencode.v41.chr_patch_hapl_scaff.annotation.gtf -c /mnt/home3/nextflow/gurdon.config --save_reference --gencode
+
+## ChIP-Seq
