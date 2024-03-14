@@ -1,4 +1,4 @@
-## RNA-Seq
+## --------- RNA-Seq ----------- ##
 
 ### July 2022 iva_lab_gencode CRAMP1_knockout
 samplesheet.csv was prepared manually
@@ -66,4 +66,4 @@ cp -r ./../../dm6.ncbiRefSeq.gtf .
 
 
 
-## ChIP-Seq
+## --------- ChIP-Seq  ----------- ##
