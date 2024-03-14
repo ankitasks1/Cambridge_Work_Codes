@@ -16,4 +16,54 @@ samplesheet.csv was prepared manually
 #Gencode With gurdon.config and default of nf-core/rna-seq
 /mnt/home3/slurm/slurm_sub.py nextflow -log myrun.log run nf-core/rnaseq  -r 3.12.0 -profile singularity --outdir outfolder --input samplesheet.csv --fasta GRCh38.p13.genome.fa --gtf GRCh38.gencode.v41.chr_patch_hapl_scaff.annotation.gtf -c /mnt/home3/nextflow/gurdon.config --save_reference --gencode
 
+### May 2023 Ma Lab data Ason/Sumaira/Nuria
+### Drosophila Melanogaster
+## Prepare_sample_sheet for nextflow
+ls -1 *.gz | awk -F'_' '{print $1"\t"$1"_"$2"_"$3"_""R1""_"$5"\t"$1"_"$2"_"$3"_""R2""_"$5}'  | sort -k1,1 -u > tempsheet.txt
+
+#### copy content of tempsheet.txt to excel sheet and substitute “-” with “_” at column 1 (=SUBSTITUTE($A2,”-”,”_”) and click down to all. And then remove human cell lines “HeLa” samples (as these are human and being analysed by Matt).
+
+#### Gencode With gurdon.config and default of nf-core/rna-seq and dm6 of UCSC, gtf ncbirefseq
+/mnt/home3/slurm/slurm_sub.py nextflow -log myrun.log run nf-core/rnaseq  -r 3.8.1 -profile singularity --outdir outfolder --input samplesheet.csv --fasta dm6.fa --gtf dm6.ncbiRefSeq.gtf -c /mnt/home3/nextflow/gurdon.config --save_reference
+
+### Aug/Sep 2023 Ma Lab data Beitong
+cp -r  /mnt/bioinfo_sharing/sharing/ma/GBP00022/RNAseq\ with\ Adam.zip av638/rnaseq/ma_lab_dm6/
+
+#rename as the folder contains spaces
+mv RNAseq\ with\ Adam.zip RNAseq_with_Adam.zip
+unzip RNAseq_with_Adam.zip -x /
+Archive:  RNAseq_with_Adam.zip
+   creating: RNA_EM_81/
+   creating: RNA_EM_9M3/
+   creating: RNA_EM_132/
+ extracting: RNA_EM_81/RNA-EM-81_S7_L001_R1_001.fastq  
+ extracting: RNA_EM_81/RNA-EM-81_S7_L002_R1_001.fastq  
+ extracting: RNA_EM_9M3/RNA-EM-9M3_S8_L002_R1_001.fastq  
+ extracting: RNA_EM_9M3/RNA-EM-9M3_S8_L001_R1_001.fastq  
+ extracting: RNA_EM_132/RNA-EM-132_S9_L001_R1_001.fastq  
+ extracting: RNA_EM_132/RNA-EM-132_S9_L002_R1_001.fastq  
+gzip *.fastq
+
+ls *.fastq.gz -1 | awk -F'_' '{print $1","$1"_"$2"_"$3"_"$4"_"$5","""",""reverse"}' > samplesheet.csv
+
+vim samplesheet.csv (add header, replace - with _ in name) 
+
+cp -r ./../dm6.fa .
+cp -r ./../dm6.ncbiRefSeq.gtf .
+
+/mnt/home3/slurm/slurm_sub.py nextflow -log myrun.log run nf-core/rnaseq  -r 3.8.1 -profile singularity --outdir outfolder --input samplesheet.csv --fasta dm6.fa --gtf dm6.ncbiRefSeq.gtf -c /mnt/home3/nextflow/gurdon.config --save_reference
+
+gzip *.fastq
+ls -1 * | awk '{print $1","$1","",""reverse"}' > samplesheet.csv
+
+vim samplesheet.csv (add header, replace - with _ in name) 
+
+cp -r ./../../dm6.fa .
+cp -r ./../../dm6.ncbiRefSeq.gtf .
+
+/mnt/home3/slurm/slurm_sub.py nextflow -log myrun.log run nf-core/rnaseq  -r 3.8.1 -profile singularity --outdir outfolder --input samplesheet.csv --fasta dm6.fa --gtf dm6.ncbiRefSeq.gtf -c /mnt/home3/nextflow/gurdon.config --save_reference
+
+
+
+
 ## ChIP-Seq
