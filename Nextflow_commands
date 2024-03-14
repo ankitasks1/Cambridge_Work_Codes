@@ -65,5 +65,13 @@ cp -r ./../../dm6.ncbiRefSeq.gtf .
 
 
 
-
 ## --------- ChIP-Seq  ----------- ##
+### Aug 2022 iva_lab_gencode
+#Single-end
+/mnt/home3/slurm/slurm_sub.py nextflow run nf-core/chipseq -r 1.2.2 -profile singularity --outdir outfolder -c /mnt/home3/nextflow/gurdon.config --fasta GRCh38.p13.genome.fa --gtf GRCh38.gencode.v41.chr_patch_hapl_scaff.annotation.gtf --input design.csv --save_reference --single_end --macs_gsize 2.8e9
+
+#Paired-end
+​​/mnt/home3/slurm/slurm_sub.py nextflow run nf-core/chipseq -r 1.2.2 -profile singularity --outdir outfolder -c /mnt/home3/nextflow/gurdon.config --fasta GRCh38.p13.genome.fa --gtf GRCh38.gencode.v41.chr_patch_hapl_scaff.annotation.gtf --input design.csv --save_reference --macs_gsize 2.8e9
+
+​​/mnt/home3/slurm/slurm_sub.py nextflow run nf-core/chipseq -r 1.2.2 -profile singularity --outdir outfolder -c /mnt/home3/nextflow/gurdon.config --fasta ./../PE/GRCh38.p13.genome.fa --gtf ./../PE/GRCh38.gencode.v41.chr_patch_hapl_scaff.annotation.gtf --input design.csv --macs_gsize 2.8e9
+
