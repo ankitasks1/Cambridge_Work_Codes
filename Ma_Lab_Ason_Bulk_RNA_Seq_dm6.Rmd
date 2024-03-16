@@ -1,0 +1,726 @@
+---
+title: "Ma_Lab_RNA_Seq_Bulk"
+output: html_document
+date: "2023-04-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+setwd("/mnt/home3/reid/av638/rnaseq/ma_lab_dm6/outfolder/")
+
+```{r library, message=FALSE}
+load("/mnt/home3/reid/av638/rnaseq/ma_lab_dm6/outfolder/star_salmon/deseq2_qc/deseq2.dds.RData")
+library(DESeq2)
+library(ggplot2)
+library(pheatmap)
+library(plyr)
+library(ggpubr)
+library(splitstackshape)
+library(gprofiler2)
+library(UpSetR)
+library(tidyr)
+library(org.Dm.eg.db)
+library(stringr)
+library(ggrepel)
+library(ChIPseeker)
+library(TxDb.Dmelanogaster.UCSC.dm6.ensGene)
+library(clusterProfiler)
+library(stringi)
+library(data.table)
+library(openxlsx)
+```
+
+
+### Obtain un-normalized counts from dds (output of nextflow nf-core/rnaseq)
+
+```{r Obtaining un-normalized counts from dds}
+precountdata <- counts(dds, normalized=FALSE)
+head(precountdata)
+dim(precountdata)
+colSums(precountdata)
+precountdata <- data.frame(precountdata)
+precountdata["ensID"] <- rownames(precountdata)
+write.table(precountdata, "precountdata.txt", quote = F, append = F, sep="\t")
+```
+
+
+
+### Sample status file
+```{r Sample status file}
+sample_status <- fread("sample_status.txt")
+sample_status <- data.frame(sample_status)
+```
+
+
+#Perform VST for full matrix
+```{r VST transform and plot PCA}
+vstNorm <- DESeq2::vst(dds) 
+vstNorm_pca <- plotPCA(vstNorm, intgroup="sample", returnData=TRUE)
+plotPCA(vstNorm, intgroup="sample", returnData=FALSE)
+```
+
+###  Get Individual counts
+```{r Individual counts}
+countdata <- precountdata[,c(1:50)]
+ason_countdata <- countdata[,c(9:32)]
+```
+
+```{r Calculate CPM counts}
+ason_countdata_cpm <- edgeR::cpm(as.matrix(ason_countdata))
+write.table(ason_countdata_cpm, "ason_countdata_cpm.txt", quote = F, append = F, sep="\t")
+ason_countdata_cpm <- data.frame(ason_countdata_cpm)
+library(openxlsx)
+write.xlsx(ason_countdata_cpm, file = "ason_countdata_cpm.xlsx", colNames = TRUE, rowNames = TRUE)
+```
+
+
+# Ason
+### Create sample-specific coldata object for ason data
+```{r Creating coldata object ason}
+ason_coldata <- data.frame(samples = colData(dds)$sample[9:32], 
+                           condition = unlist(lapply(strsplit(colData(dds)$sample[9:32], "_"), function(x) paste0(x[1],"_",x[2],"_",x[3]))), 
+                           replicate = unlist(lapply(strsplit(colData(dds)$sample[9:32], "_"), function(x) x[4])))
+
+#Import sampleinfo
+ason_coldata <- merge(ason_coldata, sample_status, by.x="samples", by.y="Sample_ID")
+rownames(ason_coldata) <- ason_coldata$samples
+ason_coldata["samples"] <- rownames(ason_coldata)
+ason_coldata$condition <- factor(ason_coldata$condition)
+ason_coldata$replicate <- factor(ason_coldata$replicate)
+ason_coldata$Sample_Status <- factor(ason_coldata$Sample_Status)
+```
+
+### Prepare count matrix for ason data
+```{r Preparing count matrix ason}
+ason_countdata = as.matrix(ason_countdata) 
+all(rownames(ason_coldata) == colnames(ason_countdata)) #should print TRUE
+ason_ddsO <- DESeqDataSetFromMatrix(countData = ason_countdata, colData = ason_coldata, design = ~ Sample_Status)
+ason_keep <- rowSums(counts(ason_ddsO)) > 10
+ason_ddsO <- ason_ddsO[ason_keep,]
+```
+
+### Perform DESeq for ason data
+```{r Performing differential expression ason}
+#Normalization is the part of DESeq command: https://hbctraining.github.io/DGE_workshop/lessons/02_DGE_count_normalization.html
+ason_ddsO <- DESeq(ason_ddsO)
+#See size factors estimated by DESeq function: sizeFactors(dds)
+```
+
+### Perform VST/z-score/Deseq2/Norm transform and plot PCA ason data
+```{r VST transform and plot PCA ason data}
+ason_vstNorm <- DESeq2::vst(ason_ddsO) 
+ason_vstNorm_counts <- data.frame((assay(ason_vstNorm)))
+ason_ddsONormcounts <- counts(ason_ddsO, normalized=TRUE)
+write.table(ason_ddsONormcounts, "ason_ddsONormcounts.txt", sep="\t", quote = FALSE, append = FALSE)
+z_Tason_ddsONormcounts= scale(t(ason_ddsONormcounts), center = TRUE, scale = TRUE)
+z_ason_ddsONormcounts <- data.frame(t(z_Tason_ddsONormcounts))
+write.table(z_ason_ddsONormcounts, "z_ddsNormcounts.txt", sep="\t", quote=F, col.names=NA)
+head(z_ason_ddsONormcounts)
+z_ason_ddsONormcounts["genes"] <- rownames(z_ason_ddsONormcounts)
+
+
+ason_vstNorm_pca <- plotPCA(ason_vstNorm, intgroup="samples", returnData=TRUE)
+ason_vstNorm_pca["replicate"] <- ason_coldata$replicate
+ason_vstNorm_pca["condition"] <- ason_coldata$condition
+ason_vstNorm_pca["status"] <- ason_coldata$Sample_Status
+ason_vstNorm_pca["effect"] <- ason_coldata$effect
+percentVar_ason_vstNorm_pca <- round(100 * attr(ason_vstNorm_pca, "percentVar"))
+ggplot(ason_vstNorm_pca, aes(PC1, PC2, color=status, shape=replicate)) +
+  geom_point(size=3) +
+  xlab(paste0("PC1: ",percentVar_ason_vstNorm_pca[1],"% variance")) +
+  ylab(paste0("PC2: ",percentVar_ason_vstNorm_pca[2],"% variance")) +
+  coord_fixed()+ 
+  theme_bw()+theme(panel.grid.major = element_line(colour = "white"),panel.grid.minor = element_line(colour = "white"))
+ggsave("PCA_ason_vstNorm.svg", width=5, height=7, units="in", dpi=96)
+```
+
+### Get Differentially Expressed Genes (DEGs) ason data
+```{r Getting differential expressed genes ason,message=FALSE}
+DE_analysis_ason_list <- list()
+count  = 0
+for (temp1 in unique(ason_coldata$Sample_Status)){
+  for (temp2 in unique(ason_coldata$Sample_Status)){
+    if (temp1 != temp2){
+      count = count + 1
+      print(c(count, temp1, temp2))
+      temp1_2_results <- results(ason_ddsO, contrast=c("Sample_Status",temp1,temp2))
+      temp1_2_results = temp1_2_results[order(rownames(temp1_2_results)),]
+      print(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted"))
+      #assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted"), temp1_2_results)
+      #write.table(temp1_2_results, paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted.txt"), sep="\t", quote = FALSE, append = FALSE)
+      DE_analysis_ason_list[[paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted")]] <- temp1_2_results
+      temp1_2_results$threshold <- as.logical(temp1_2_results$padj < 0.05)
+      deseq2_pairwise_temp1_2_results_0.05 <- temp1_2_results[which(temp1_2_results$threshold == TRUE),]
+      print(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05"))
+      print(paste0("",dim(deseq2_pairwise_temp1_2_results_0.05)))
+      DE_analysis_ason_list[[paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05")]] <- deseq2_pairwise_temp1_2_results_0.05
+      #assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05"), deseq2_pairwise_temp1_2_results_0.05)
+      #write.table(deseq2_pairwise_temp1_2_results_0.05, paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.txt"), sep="\t", quote = FALSE, append = FALSE)
+
+      #Get up and down-regulated genes
+      deseq2_pairwise_temp1_2_results_0.05.up <- deseq2_pairwise_temp1_2_results_0.05[which(deseq2_pairwise_temp1_2_results_0.05$log2FoldChange > 1),]
+      deseq2_pairwise_temp1_2_results_0.05.down <- deseq2_pairwise_temp1_2_results_0.05[which(deseq2_pairwise_temp1_2_results_0.05$log2FoldChange < -1),]
+      #assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.up"), deseq2_pairwise_temp1_2_results_0.05[which(deseq2_pairwise_temp1_2_results_0.05$log2FoldChange > 1),])
+      #assign(paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.down"), deseq2_pairwise_temp1_2_results_0.05[which(deseq2_pairwise_temp1_2_results_0.05$log2FoldChange < -1),])
+      DE_analysis_ason_list[[paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.up")]] <- deseq2_pairwise_temp1_2_results_0.05.up
+      DE_analysis_ason_list[[paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.down")]] <- deseq2_pairwise_temp1_2_results_0.05.down
+      print(dim(DE_analysis_ason_list[[paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.up")]]))
+      print(dim(DE_analysis_ason_list[[paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.down")]]))
+    }
+  }
+}
+
+combination1 <- c("Rescue_CYC_RP1","Rescue_CYC_RP2","Rescue_CYC_RP3","Mutant_CYC_TP1","Mutant_CYC_TP2","Mutant_CYC_TP3","Rescue_CYC_RP1","Rescue_CYC_RP2","Rescue_CYC_RP3","Rescue_CYC_RL3","Mutant_CYC_TL3","Rescue_CYC_RL3")
+combination2 <- c("Wildtype_CYC_WP1","Wildtype_CYC_WP2","Wildtype_CYC_WP3","Wildtype_CYC_WP1","Wildtype_CYC_WP2","Wildtype_CYC_WP3","Mutant_CYC_TP1","Mutant_CYC_TP2","Mutant_CYC_TP3","Wildtype_CYC_WL3","Wildtype_CYC_WL3","Mutant_CYC_TL3")
+
+#Selected
+DE_analysis_ason_list_sel <- list()
+DE_analysis_ason_list_sel_DE <- list()
+pairwise_cbind_combinations <- cbind(combination1, combination2)
+for (pairwise_lines in 1:nrow(pairwise_cbind_combinations)){
+  pairwise_combinations <- pairwise_cbind_combinations[pairwise_lines,]
+  print(pairwise_combinations)
+  de_results <- results(ason_ddsO, contrast=c("Sample_Status", pairwise_combinations))
+  de_results = de_results[order(rownames(de_results)),]
+  print(paste0("deseq2_pairwise_res_",paste0(pairwise_combinations,collapse = "_"), "_sorted"))
+  #assign(paste0("deseq2_pairwise_res_",pairwise_combinations, "_sorted"), de_results)
+  #write.table(de_results, paste0("deseq2_pairwise_res_",pairwise_combinations, "_sorted.txt"), sep="\t", quote = FALSE, append = FALSE)
+  DE_analysis_ason_list_sel[[paste0("deseq2_pairwise_res_",paste0(pairwise_combinations,collapse = "_"), "_sorted")]] <- de_results
+  de_results$threshold <- as.logical(de_results$padj < 0.05)
+  deseq2_pairwise_de_results_0.05 <- de_results[which(de_results$threshold == TRUE),]
+  print(paste0("deseq2_pairwise_res_",paste0(pairwise_combinations,collapse = "_"), "_sorted_0.05"))
+  print(paste0("",dim(deseq2_pairwise_de_results_0.05)))
+  DE_analysis_ason_list_sel[[paste0("deseq2_pairwise_res_",paste0(pairwise_combinations,collapse = "_"), "_sorted_0.05")]] <- deseq2_pairwise_de_results_0.05
+  deseq2_pairwise_de_results_0.05_df <- data.frame(deseq2_pairwise_de_results_0.05)
+  deseq2_pairwise_de_results_0.05_df["gene"] <- rownames(deseq2_pairwise_de_results_0.05_df)
+  deseq2_pairwise_de_results_0.05_df <- deseq2_pairwise_de_results_0.05_df[,c(8,1:7)]
+  DE_analysis_ason_list_sel_DE[[paste0(pairwise_combinations,collapse = "_")]] <- deseq2_pairwise_de_results_0.05_df
+  #assign(paste0("deseq2_pairwise_res_",pairwise_combinations, "_sorted_0.05"), deseq2_pairwise_de_results_0.05)
+  #write.table(deseq2_pairwise_de_results_0.05, paste0("deseq2_pairwise_res_",pairwise_combinations, "_sorted_0.05.txt"), sep="\t", quote = FALSE, append = FALSE)
+  
+  #Get up and down-regulated genes
+  deseq2_pairwise_de_results_0.05.up <- deseq2_pairwise_de_results_0.05[which(deseq2_pairwise_de_results_0.05$log2FoldChange > 1),]
+  deseq2_pairwise_de_results_0.05.down <- deseq2_pairwise_de_results_0.05[which(deseq2_pairwise_de_results_0.05$log2FoldChange < -1),]
+  #assign(paste0("deseq2_pairwise_res_",pairwise_combinations, "_sorted_0.05.up"), deseq2_pairwise_de_results_0.05[which(deseq2_pairwise_de_results_0.05$log2FoldChange > 1),])
+  #assign(paste0("deseq2_pairwise_res_",pairwise_combinations, "_sorted_0.05.down"), deseq2_pairwise_de_results_0.05[which(deseq2_pairwise_de_results_0.05$log2FoldChange < -1),])
+  DE_analysis_ason_list_sel[[paste0("deseq2_pairwise_res_",paste0(pairwise_combinations,collapse = "_"), "_sorted_0.05.up")]] <- deseq2_pairwise_de_results_0.05.up
+  DE_analysis_ason_list_sel[[paste0("deseq2_pairwise_res_",paste0(pairwise_combinations,collapse = "_"), "_sorted_0.05.down")]] <- deseq2_pairwise_de_results_0.05.down
+  print(dim(DE_analysis_ason_list_sel[[paste0("deseq2_pairwise_res_",paste0(pairwise_combinations,collapse = "_"), "_sorted_0.05.up")]]))
+  print(dim(DE_analysis_ason_list_sel[[paste0("deseq2_pairwise_res_",paste0(pairwise_combinations,collapse = "_"), "_sorted_0.05.down")]]))
+}
+
+write.xlsx(DE_analysis_ason_list_sel_DE, file = "DE_analysis_ason_list_sel_DE.xlsx", colNames = TRUE, rowNames = TRUE)
+```
+
+
+### Manual DE analysis ason: Mutant_CYC_TP1_Wildtype_CYC_WP1
+```{r ason: Mutant_CYC_TP1_Wildtype_CYC_WP1}
+deseq2_pairwise_res_Mutant_CYC_TP1_Wildtype_CYC_WP1_results <- results(ason_ddsO, contrast=c("Sample_Status","Mutant_CYC_TP1","Wildtype_CYC_WP1"))
+deseq2_pairwise_res_Mutant_CYC_TP1_Wildtype_CYC_WP1_results <- deseq2_pairwise_res_Mutant_CYC_TP1_Wildtype_CYC_WP1_results[order(rownames(deseq2_pairwise_res_Mutant_CYC_TP1_Wildtype_CYC_WP1_results)),]
+write.table(deseq2_pairwise_res_Mutant_CYC_TP1_Wildtype_CYC_WP1_results, paste0("deseq2_pairwise_res_","Mutant_CYC_TP1", "_","Wildtype_CYC_WP1","_","sorted.txt"), sep="\t", quote = FALSE, append = FALSE)
+deseq2_pairwise_res_Mutant_CYC_TP1_Wildtype_CYC_WP1_results$threshold <- as.logical(deseq2_pairwise_res_Mutant_CYC_TP1_Wildtype_CYC_WP1_results$padj < 0.05)
+deseq2_pairwise_Mutant_CYC_TP1_Wildtype_CYC_WP1_results_0.05 <- deseq2_pairwise_res_Mutant_CYC_TP1_Wildtype_CYC_WP1_results[which(deseq2_pairwise_res_Mutant_CYC_TP1_Wildtype_CYC_WP1_results$threshold == TRUE),]
+deseq2_pairwise_Mutant_CYC_TP1_Wildtype_CYC_WP1_results_0.05.up <- deseq2_pairwise_Mutant_CYC_TP1_Wildtype_CYC_WP1_results_0.05[which(deseq2_pairwise_Mutant_CYC_TP1_Wildtype_CYC_WP1_results_0.05$log2FoldChange > 1),]
+deseq2_pairwise_Mutant_CYC_TP1_Wildtype_CYC_WP1_results_0.05.down <- deseq2_pairwise_Mutant_CYC_TP1_Wildtype_CYC_WP1_results_0.05[which(deseq2_pairwise_Mutant_CYC_TP1_Wildtype_CYC_WP1_results_0.05$log2FoldChange < -1),]
+
+write.table(deseq2_pairwise_Mutant_CYC_TP1_Wildtype_CYC_WP1_results_0.05, paste0("deseq2_pairwise_res_","Mutant_CYC_TP1", "_","Wildtype_CYC_WP1","_","sorted_0.05.txt"), sep="\t", quote = FALSE, append = FALSE)
+write.table(data.frame(rownames(deseq2_pairwise_Mutant_CYC_TP1_Wildtype_CYC_WP1_results_0.05)), paste0("deseq2_pairwise_res_","Mutant_CYC_TP1", "_","Wildtype_CYC_WP1","_","sorted_0.05.gene"), sep="\t", quote = FALSE, append = FALSE)
+
+#gprofileR analysis
+gost_pairwise_Mutant_CYC_TP1_Wildtype_CYC_WP1_results_0.05 <- gost(query=rownames(deseq2_pairwise_Mutant_CYC_TP1_Wildtype_CYC_WP1_results_0.05), organism="dmelanogaster")
+gost_pairwise_Mutant_CYC_TP1_Wildtype_CYC_WP1_results_0.05.up <- gost(query=rownames(deseq2_pairwise_Mutant_CYC_TP1_Wildtype_CYC_WP1_results_0.05.up), organism="dmelanogaster")
+gost_pairwise_Mutant_CYC_TP1_Wildtype_CYC_WP1_results_0.05.down <- gost(query=rownames(deseq2_pairwise_Mutant_CYC_TP1_Wildtype_CYC_WP1_results_0.05.down), organism="dmelanogaster")
+
+```
+
+
+### Manual DE analysis ason: Mutant_CYC_TP2_Wildtype_CYC_WP2
+```{r ason: Mutant_CYC_TP2_Wildtype_CYC_WP2}
+deseq2_pairwise_res_Mutant_CYC_TP2_Wildtype_CYC_WP2_results <- results(ason_ddsO, contrast=c("Sample_Status","Mutant_CYC_TP2","Wildtype_CYC_WP2"))
+deseq2_pairwise_res_Mutant_CYC_TP2_Wildtype_CYC_WP2_results <- deseq2_pairwise_res_Mutant_CYC_TP2_Wildtype_CYC_WP2_results[order(rownames(deseq2_pairwise_res_Mutant_CYC_TP2_Wildtype_CYC_WP2_results)),]
+write.table(deseq2_pairwise_res_Mutant_CYC_TP2_Wildtype_CYC_WP2_results, paste0("deseq2_pairwise_res_","Mutant_CYC_TP2", "_","Wildtype_CYC_WP2","_","sorted.txt"), sep="\t", quote = FALSE, append = FALSE)
+deseq2_pairwise_res_Mutant_CYC_TP2_Wildtype_CYC_WP2_results$threshold <- as.logical(deseq2_pairwise_res_Mutant_CYC_TP2_Wildtype_CYC_WP2_results$padj < 0.05)
+deseq2_pairwise_Mutant_CYC_TP2_Wildtype_CYC_WP2_results_0.05 <- deseq2_pairwise_res_Mutant_CYC_TP2_Wildtype_CYC_WP2_results[which(deseq2_pairwise_res_Mutant_CYC_TP2_Wildtype_CYC_WP2_results$threshold == TRUE),]
+deseq2_pairwise_Mutant_CYC_TP2_Wildtype_CYC_WP2_results_0.05.up <- deseq2_pairwise_Mutant_CYC_TP2_Wildtype_CYC_WP2_results_0.05[which(deseq2_pairwise_Mutant_CYC_TP2_Wildtype_CYC_WP2_results_0.05$log2FoldChange > 1),]
+deseq2_pairwise_Mutant_CYC_TP2_Wildtype_CYC_WP2_results_0.05.down <- deseq2_pairwise_Mutant_CYC_TP2_Wildtype_CYC_WP2_results_0.05[which(deseq2_pairwise_Mutant_CYC_TP2_Wildtype_CYC_WP2_results_0.05$log2FoldChange < -1),]
+
+write.table(deseq2_pairwise_Mutant_CYC_TP2_Wildtype_CYC_WP2_results_0.05, paste0("deseq2_pairwise_res_","Mutant_CYC_TP2", "_","Wildtype_CYC_WP2","_","sorted_0.05.txt"), sep="\t", quote = FALSE, append = FALSE)
+write.table(data.frame(rownames(deseq2_pairwise_Mutant_CYC_TP2_Wildtype_CYC_WP2_results_0.05)), paste0("deseq2_pairwise_res_","Mutant_CYC_TP2", "_","Wildtype_CYC_WP2","_","sorted_0.05.gene"), sep="\t", quote = FALSE, append = FALSE)
+
+#gprofileR analysis
+gost_pairwise_Mutant_CYC_TP2_Wildtype_CYC_WP2_results_0.05 <- gost(query=rownames(deseq2_pairwise_Mutant_CYC_TP2_Wildtype_CYC_WP2_results_0.05), organism="dmelanogaster")
+gost_pairwise_Mutant_CYC_TP2_Wildtype_CYC_WP2_results_0.05.up <- gost(query=rownames(deseq2_pairwise_Mutant_CYC_TP2_Wildtype_CYC_WP2_results_0.05.up), organism="dmelanogaster")
+gost_pairwise_Mutant_CYC_TP2_Wildtype_CYC_WP2_results_0.05.down <- gost(query=rownames(deseq2_pairwise_Mutant_CYC_TP2_Wildtype_CYC_WP2_results_0.05.down), organism="dmelanogaster")
+```
+
+
+### Manual DE analysis ason: Mutant_CYC_TP3_Wildtype_CYC_WP3
+```{r ason: Mutant_CYC_TP3_Wildtype_CYC_WP3}
+deseq2_pairwise_res_Mutant_CYC_TP3_Wildtype_CYC_WP3_results <- results(ason_ddsO, contrast=c("Sample_Status","Mutant_CYC_TP3","Wildtype_CYC_WP3"))
+deseq2_pairwise_res_Mutant_CYC_TP3_Wildtype_CYC_WP3_results <- deseq2_pairwise_res_Mutant_CYC_TP3_Wildtype_CYC_WP3_results[order(rownames(deseq2_pairwise_res_Mutant_CYC_TP3_Wildtype_CYC_WP3_results)),]
+write.table(deseq2_pairwise_res_Mutant_CYC_TP3_Wildtype_CYC_WP3_results, paste0("deseq2_pairwise_res_","Mutant_CYC_TP3", "_","Wildtype_CYC_WP3","_","sorted.txt"), sep="\t", quote = FALSE, append = FALSE)
+deseq2_pairwise_res_Mutant_CYC_TP3_Wildtype_CYC_WP3_results$threshold <- as.logical(deseq2_pairwise_res_Mutant_CYC_TP3_Wildtype_CYC_WP3_results$padj < 0.05)
+deseq2_pairwise_Mutant_CYC_TP3_Wildtype_CYC_WP3_results_0.05 <- deseq2_pairwise_res_Mutant_CYC_TP3_Wildtype_CYC_WP3_results[which(deseq2_pairwise_res_Mutant_CYC_TP3_Wildtype_CYC_WP3_results$threshold == TRUE),]
+deseq2_pairwise_Mutant_CYC_TP3_Wildtype_CYC_WP3_results_0.05.up <- deseq2_pairwise_Mutant_CYC_TP3_Wildtype_CYC_WP3_results_0.05[which(deseq2_pairwise_Mutant_CYC_TP3_Wildtype_CYC_WP3_results_0.05$log2FoldChange > 1),]
+deseq2_pairwise_Mutant_CYC_TP3_Wildtype_CYC_WP3_results_0.05.down <- deseq2_pairwise_Mutant_CYC_TP3_Wildtype_CYC_WP3_results_0.05[which(deseq2_pairwise_Mutant_CYC_TP3_Wildtype_CYC_WP3_results_0.05$log2FoldChange < -1),]
+
+write.table(deseq2_pairwise_Mutant_CYC_TP3_Wildtype_CYC_WP3_results_0.05, paste0("deseq2_pairwise_res_","Mutant_CYC_TP3", "_","Wildtype_CYC_WP3","_","sorted_0.05.txt"), sep="\t", quote = FALSE, append = FALSE)
+write.table(data.frame(rownames(deseq2_pairwise_Mutant_CYC_TP3_Wildtype_CYC_WP3_results_0.05)), paste0("deseq2_pairwise_res_","Mutant_CYC_TP3", "_","Wildtype_CYC_WP3","_","sorted_0.05.gene"), sep="\t", quote = FALSE, append = FALSE)
+
+#gprofileR analysis
+gost_pairwise_Mutant_CYC_TP3_Wildtype_CYC_WP3_results_0.05 <- gost(query=rownames(deseq2_pairwise_Mutant_CYC_TP3_Wildtype_CYC_WP3_results_0.05), organism="dmelanogaster")
+gost_pairwise_Mutant_CYC_TP3_Wildtype_CYC_WP3_results_0.05.up <- gost(query=rownames(deseq2_pairwise_Mutant_CYC_TP3_Wildtype_CYC_WP3_results_0.05.up), organism="dmelanogaster")
+gost_pairwise_Mutant_CYC_TP3_Wildtype_CYC_WP3_results_0.05.down <- gost(query=rownames(deseq2_pairwise_Mutant_CYC_TP3_Wildtype_CYC_WP3_results_0.05.down), organism="dmelanogaster")
+```
+
+### Manual DE analysis ason: Mutant_CYC_TL3_Wildtype_CYC_WL3
+```{r ason: Mutant_CYC_TL3_Wildtype_CYC_WL3}
+deseq2_pairwise_res_Mutant_CYC_TL3_Wildtype_CYC_WL3_results <- results(ason_ddsO, contrast=c("Sample_Status","Mutant_CYC_TL3","Wildtype_CYC_WL3"))
+deseq2_pairwise_res_Mutant_CYC_TL3_Wildtype_CYC_WL3_results <- deseq2_pairwise_res_Mutant_CYC_TL3_Wildtype_CYC_WL3_results[order(rownames(deseq2_pairwise_res_Mutant_CYC_TL3_Wildtype_CYC_WL3_results)),]
+write.table(deseq2_pairwise_res_Mutant_CYC_TL3_Wildtype_CYC_WL3_results, paste0("deseq2_pairwise_res_","Mutant_CYC_TL3", "_","Wildtype_CYC_WL3","_","sorted.txt"), sep="\t", quote = FALSE, append = FALSE)
+deseq2_pairwise_res_Mutant_CYC_TL3_Wildtype_CYC_WL3_results$threshold <- as.logical(deseq2_pairwise_res_Mutant_CYC_TL3_Wildtype_CYC_WL3_results$padj < 0.05)
+deseq2_pairwise_Mutant_CYC_TL3_Wildtype_CYC_WL3_results_0.05 <- deseq2_pairwise_res_Mutant_CYC_TL3_Wildtype_CYC_WL3_results[which(deseq2_pairwise_res_Mutant_CYC_TL3_Wildtype_CYC_WL3_results$threshold == TRUE),]
+deseq2_pairwise_Mutant_CYC_TL3_Wildtype_CYC_WL3_results_0.05.up <- deseq2_pairwise_Mutant_CYC_TL3_Wildtype_CYC_WL3_results_0.05[which(deseq2_pairwise_Mutant_CYC_TL3_Wildtype_CYC_WL3_results_0.05$log2FoldChange > 1),]
+deseq2_pairwise_Mutant_CYC_TL3_Wildtype_CYC_WL3_results_0.05.down <- deseq2_pairwise_Mutant_CYC_TL3_Wildtype_CYC_WL3_results_0.05[which(deseq2_pairwise_Mutant_CYC_TL3_Wildtype_CYC_WL3_results_0.05$log2FoldChange < -1),]
+
+write.table(deseq2_pairwise_Mutant_CYC_TL3_Wildtype_CYC_WL3_results_0.05, paste0("deseq2_pairwise_res_","Mutant_CYC_TL3", "_","Wildtype_CYC_WL3","_","sorted_0.05.txt"), sep="\t", quote = FALSE, append = FALSE)
+write.table(data.frame(rownames(deseq2_pairwise_Mutant_CYC_TL3_Wildtype_CYC_WL3_results_0.05)), paste0("deseq2_pairwise_res_","Mutant_CYC_TL3", "_","Wildtype_CYC_WL3","_","sorted_0.05.gene"), sep="\t", quote = FALSE, append = FALSE)
+
+#gprofileR analysis
+gost_pairwise_Mutant_CYC_TL3_Wildtype_CYC_WL3_results_0.05.up <- gost(query=rownames(deseq2_pairwise_Mutant_CYC_TL3_Wildtype_CYC_WL3_results_0.05.up), organism="dmelanogaster")
+gost_pairwise_Mutant_CYC_TL3_Wildtype_CYC_WL3_results_0.05.down <- gost(query=rownames(deseq2_pairwise_Mutant_CYC_TL3_Wildtype_CYC_WL3_results_0.05.down), organism="dmelanogaster")
+```
+
+
+### MA Plot ason data
+```{r plotting MA plot ason data}
+MA_plot_ason_list = list()
+for (temp1 in unique(ason_coldata$Sample_Status)){
+  for (temp2 in unique(ason_coldata$Sample_Status)){
+    if (temp1 != temp2){
+      print(paste0(temp1, "_",temp2))
+      plotMA_temp3 <- ggmaplot(DE_analysis_ason_list[[paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted")]],
+         fdr = 0.05, fc = 2, size = 0.3,
+         palette = c("#D22B2B", "#1465AC", "darkgray"),
+         genenames = rownames(DE_analysis_ason_list[[paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted")]]),
+         legend = "top", top = 20,
+         font.label = c("bold", 5),
+         font.legend = "bold",
+         font.main = "bold",
+         ggtheme = ggplot2::theme_minimal())
+      MA_plot_ason_list[[paste0(temp1, "_",temp2)]]  <- plotMA_temp3
+    }
+  }
+}
+
+pdf(file = "ason_maplot_plot_list_rnaseq_new.pdf", height = 50, width = 50)
+ggpubr::ggarrange(plotlist = MA_plot_ason_list, ncol=6, nrow=22, common.legend = F, labels=names(MA_plot_ason_list), vjust = 1,hjust=-0.5,font.label = list(size = 10, color = "black", face = "bold", family = NULL))
+dev.off()
+```
+
+### MA Plot ason data selected
+```{r plotting MA plot ason data selected}
+combination1 <- c("Rescue_CYC_RP1","Rescue_CYC_RP2","Rescue_CYC_RP3","Mutant_CYC_TP1","Mutant_CYC_TP2","Mutant_CYC_TP3","Rescue_CYC_RP1","Rescue_CYC_RP2","Rescue_CYC_RP3","Rescue_CYC_RL3","Mutant_CYC_TL3","Rescue_CYC_RL3")
+combination2 <- c("Wildtype_CYC_WP1","Wildtype_CYC_WP2","Wildtype_CYC_WP3","Wildtype_CYC_WP1","Wildtype_CYC_WP2","Wildtype_CYC_WP3","Mutant_CYC_TP1","Mutant_CYC_TP2","Mutant_CYC_TP3","Wildtype_CYC_WL3","Wildtype_CYC_WL3","Mutant_CYC_TL3")
+
+
+pairwise_cbind_combinations <- cbind(combination1, combination2)
+MA_plot_ason_list_sel = list()
+for (pairwise_lines in 1:nrow(pairwise_cbind_combinations)){
+  pairwise_combinations <- pairwise_cbind_combinations[pairwise_lines,]
+  print(pairwise_combinations)
+      plotMA_temp3 <- ggmaplot(DE_analysis_ason_list_sel[[paste0("deseq2_pairwise_res_",paste0(pairwise_combinations,collapse = "_"), "_sorted")]],
+         fdr = 0.05, fc = 2, size = 0.3,
+         palette = c("#D22B2B", "#1465AC", "darkgray"),
+         genenames = rownames(DE_analysis_ason_list_sel[[paste0("deseq2_pairwise_res_",paste0(pairwise_combinations,collapse = "_"), "_sorted")]]),
+         legend = "top", top = 20,
+         font.label = c("bold", 5),
+         font.legend = "bold",
+         font.main = "bold",
+         ggtheme = ggplot2::theme_minimal())
+      MA_plot_ason_list_sel[[paste0(pairwise_combinations,collapse = "_")]]  <- plotMA_temp3
+}
+
+pdf(file = "ason_maplot_plot_list_sel_rnaseq_new.pdf", height = 30, width = 20)
+ggpubr::ggarrange(plotlist = MA_plot_ason_list_sel, ncol=3, nrow=4, common.legend = F, labels=names(MA_plot_ason_list_sel), vjust = 1,hjust=-0.5,font.label = list(size = 10, color = "black", face = "bold", family = NULL))
+dev.off()
+```
+
+### Functional analysis ason data
+```{r Performing gProfiler2 analysis ason data}
+#----------The number of combination for all possible are too many so I am doing only the required combinations-------#
+#Note: p_value output of gost function is Hypergeometric p-value after correction for multiple testing, see https://biit.cs.ut.ee/gprofiler_beta/page/apis#gost_query_results
+# Prepare gostplot using gene symbol as character
+# goterm_analysis_ason_list <- list()
+# for (temp1 in unique(ason_coldata$Sample_Status)){
+#   for (temp2 in unique(ason_coldata$Sample_Status)){
+#     if (temp1 != temp2){
+#       print(paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.up"))
+#       gost_pairwise_temp1_temp2_0.05.up <- gost(query=rownames(DE_analysis_ason_list[[paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.up")]]), organism="dmelanogaster")
+#       print(paste0("gost_pairwise_",temp1, "_",temp2,"_0.05.down"))
+#       gost_pairwise_temp1_temp2_0.05.down <- gost(query=rownames(DE_analysis_ason_list[[paste0("deseq2_pairwise_res_",temp1, "_",temp2,"_","sorted_0.05.down")]]), organism="dmelanogaster")
+#       goterm_analysis_ason_list[[paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.up")]] <- gost_pairwise_temp1_temp2_0.05.up
+#       goterm_analysis_ason_list[[paste0("gost_pairwise_",temp1,"_",temp2,"_0.05.down")]] <- gost_pairwise_temp1_temp2_0.05.down
+#     }
+#   }
+# }
+
+# ason_data_DE_combinations <- c("Rescue_CYC_RP1_Wildtype_CYC_WP1","Rescue_CYC_RP2_Wildtype_CYC_WP2","Rescue_CYC_RP3_Wildtype_CYC_WP3","Mutant_CYC_TP1_Wildtype_CYC_WP1","Mutant_CYC_TP2_Wildtype_CYC_WP2","Mutant_CYC_TP3_Wildtype_CYC_WP3","Rescue_CYC_RP1_Mutant_CYC_TP1","Rescue_CYC_RP2_Mutant_CYC_TP2","Rescue_CYC_RP3_Mutant_CYC_TP3","Rescue_CYC_RL3_Wildtype_CYC_WL3","Mutant_CYC_TL3_Wildtype_CYC_WL3","Rescue_CYC_RL3_Mutant_CYC_TL3")
+
+goterm_analysis_ason_list <- list()
+for (pairwise_lines in 1:nrow(pairwise_cbind_combinations)){
+  pairwise_combinations <- pairwise_cbind_combinations[pairwise_lines,]
+  print(pairwise_combinations)
+  print(paste0("gost_pairwise_",paste0(pairwise_combinations, collapse = "_"),"_0.05.up"))
+  gost_pairwise_combinations_0.05.up <- gost(query=rownames(DE_analysis_ason_list_sel[[paste0("deseq2_pairwise_res_",paste0(pairwise_combinations, collapse = "_"),"_","sorted_0.05.up")]]), organism="dmelanogaster")
+  print(paste0("gost_pairwise_",paste0(pairwise_combinations, collapse = "_"),"_0.05.down"))
+  gost_pairwise_combinations_0.05.down <- gost(query=rownames(DE_analysis_ason_list_sel[[paste0("deseq2_pairwise_res_",paste0(pairwise_combinations, collapse = "_"),"_","sorted_0.05.down")]]), organism="dmelanogaster")
+  goterm_analysis_ason_list[[paste0("gost_pairwise_",paste0(pairwise_combinations, collapse = "_"),"_0.05.up")]] <- gost_pairwise_combinations_0.05.up
+  goterm_analysis_ason_list[[paste0("gost_pairwise_",paste0(pairwise_combinations, collapse = "_"),"_0.05.down")]] <- gost_pairwise_combinations_0.05.down
+}
+```
+
+### Bar plotting with GO:BP terms ason data
+```{r Bar plotting with GO:BP terms ason}
+goterm_barplot_ason_list <- list()
+gost_gobp_bar_top_ason_list <- list()
+for (names in names(goterm_analysis_ason_list)){
+  print(names)
+  gost.temp4 <- goterm_analysis_ason_list[[names]]
+  gost.temp4.res.sorted <- gost.temp4$result[order(gost.temp4$result$p_value),]
+  gost.temp4.res.sorted["term_name_collapse"] <- paste0(gost.temp4.res.sorted$term_id,"_",gost.temp4.res.sorted$source,"_" ,gsub(" ", ".", gost.temp4.res.sorted$term_name))
+  gost.temp4.res.sorted_gobp <- gost.temp4.res.sorted[which(gost.temp4.res.sorted$source == "GO:BP"),]
+  gost.temp4.res.sorted_gobp_bar <- gost.temp4.res.sorted_gobp[,c(11,3)]
+  gost.temp4.res.sorted_gobp_bar_top <- head(gost.temp4.res.sorted_gobp_bar,10)
+  gost.temp4.res.sorted_gobp_bar_top$p_value <- -log10(gost.temp4.res.sorted_gobp_bar_top$p_value)
+  gost_gobp_bar_top_ason_list[[names]] <- gost.temp4.res.sorted_gobp_bar_top
+  if((any(grepl('.up', names))) == T){
+    print(names)
+    plotBar_temp4 <- ggbarplot(gost.temp4.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#5d93c4ff", fill = "#5d93c4ff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = gsub("gost.","",names), lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+  goterm_barplot_ason_list[[names]] <- plotBar_temp4
+  }else{
+    print(names)
+    plotBar_temp4 <- ggbarplot(gost.temp4.res.sorted_gobp_bar_top, x = "term_name", y = "p_value", color = "#e58e8eff", fill = "#e58e8eff" , sort.by.groups = FALSE,x.text.angle = 90, ylab = "-log10(p.value)", xlab = "Biological Process", legend.title = gsub("gost.","",names), lab.size = 9, sort.val = "asc", rotate = TRUE,  position = position_dodge(),ggtheme = theme_bw())
+  goterm_barplot_ason_list[[names]] <- plotBar_temp4
+  }
+}
+   
+
+pdf(file = "ason_gobp_barlot_plot_list_rnaseq.pdf", height = 20, width = 40)
+ggpubr::ggarrange(plotlist = goterm_barplot_ason_list, ncol=5, nrow=5, common.legend = F, labels=names(goterm_barplot_ason_list), vjust = 1,hjust=-0.5,font.label = list(size = 8, color = "black", face = "bold", family = NULL))
+dev.off()
+```
+
+### Identify common DE genes: All combinations ason data
+```{r Plotting common DE genes between different knockouts ason data}
+upset_plot_ason_list = list()
+for (status1 in unique(as.character(ason_coldata$Sample_Status))){
+  for (status2 in unique(as.character(ason_coldata$Sample_Status))){
+    if (status1 != status2){
+      upset_plot_ason_list[[paste0(status1, "_",status2,".up")]] <- rownames(DE_analysis_ason_list_sel[[paste0("deseq2_pairwise_res_",paste0(status1, "_",status2,collapse = "_"), "_sorted_0.05.up")]])
+      upset_plot_ason_list[[paste0(status1, "_",status2,".down")]] <- rownames(DE_analysis_ason_list_sel[[paste0("deseq2_pairwise_res_",paste0(status1, "_",status2,collapse = "_"), "_sorted_0.05.down")]])
+    }
+  }
+}
+
+sub_upset_plot_ason_list <- upset_plot_ason_list[c(which(names(upset_plot_ason_list) %like% ("Rescue") == FALSE))]
+
+pdf("upset_plot_ason_deregulatedgenes.pdf", width=9, height=7)
+upset(fromList(upset_plot_ason_list),nsets = 12, order.by = "freq",number.angles = 0, empty.intersections = "on", keep.order = TRUE)
+dev.off()
+
+pdf("upset_plot_ason_sub_deregulatedgenes.pdf", width=9, height=7)
+upset(fromList(sub_upset_plot_ason_list),nsets = 12, order.by = "freq",number.angles = 0, empty.intersections = "on", keep.order = TRUE)
+dev.off()
+```
+
+
+### cardiolipin genes
+```{r cardiolipin genes}
+z_Tason_ddsONormcounts= scale(t(ason_ddsONormcounts), center = TRUE, scale = TRUE)
+z_ason_ddsONormcounts <- data.frame(t(z_Tason_ddsONormcounts))
+write.table(z_ason_ddsONormcounts, "z_ason_ddsONormcounts.txt", sep="\t", quote=F, col.names=NA)
+head(z_ason_ddsONormcounts)
+z_ason_ddsONormcounts["genes"] <- rownames(z_ason_ddsONormcounts)
+cardiolipin_genes <- read.table("cardiolipin_genes.txt")
+colnames(cardiolipin_genes) <- "genes"
+z_ason_ddsONormcounts_cardiolipin <- merge(cardiolipin_genes, z_ason_ddsONormcounts, by.x="genes", by.y = "genes")
+rownames(z_ason_ddsONormcounts_cardiolipin) <- z_ason_ddsONormcounts_cardiolipin$genes
+dim(z_ason_ddsONormcounts_cardiolipin)
+breaksListn <- seq(-4, 4, by = 0.01)
+pheatmap(z_ason_ddsONormcounts_cardiolipin[,c(2:25)],color = colorRampPalette(c("red", "black", "green"))(length(breaksListn)), breaks = breaksListn,fontsize = 6,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T)
+
+#pupae
+z_Tason_ddsONormcounts_pupae= scale(t(ason_ddsONormcounts[,-c(1:2,9:10,17:18)]), center = TRUE, scale = TRUE)
+z_ason_ddsONormcounts_pupae <- data.frame(t(z_Tason_ddsONormcounts_pupae))
+write.table(z_ason_ddsONormcounts_pupae, "z_ason_ddsONormcounts_pupae.txt", sep="\t", quote=F, col.names=NA)
+head(z_ason_ddsONormcounts_pupae)
+z_ason_ddsONormcounts_pupae["genes"] <- rownames(z_ason_ddsONormcounts_pupae)
+cardiolipin_genes <- read.table("cardiolipin_genes.txt")
+colnames(cardiolipin_genes) <- "genes"
+z_ason_ddsONormcounts_pupae_cardiolipin <- merge(cardiolipin_genes, z_ason_ddsONormcounts_pupae, by.x="genes", by.y = "genes")
+rownames(z_ason_ddsONormcounts_pupae_cardiolipin) <- z_ason_ddsONormcounts_pupae_cardiolipin$genes
+dim(z_ason_ddsONormcounts_pupae_cardiolipin)
+breaksListn <- seq(-4, 4, by = 0.01)
+pheatmap(z_ason_ddsONormcounts_pupae_cardiolipin[,c(2:19)],color = colorRampPalette(c("red", "black", "green"))(length(breaksListn)), breaks = breaksListn,fontsize = 6,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T)
+#z_ason_ddsONormcounts_pupae_cardiolipin.pdf
+#vst
+head(ason_vstNorm_counts)
+ason_vstNorm_counts["genes"] <- rownames(ason_vstNorm_counts)
+cardiolipin_genes <- read.table("cardiolipin_genes.txt")
+colnames(cardiolipin_genes) <- "genes"
+ason_vstNorm_counts_cardiolipin <- merge(cardiolipin_genes, ason_vstNorm_counts, by.x="genes", by.y = "genes")
+rownames(ason_vstNorm_counts_cardiolipin) <- ason_vstNorm_counts_cardiolipin$genes
+dim(ason_vstNorm_counts_cardiolipin)
+breaksListx <- seq(0, 15, by = 0.01)
+pheatmap(ason_vstNorm_counts_cardiolipin[,c(2:25)],color = colorRampPalette(c("red", "black", "green"))(length(breaksListx)), breaks = breaksListx,fontsize = 6,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T)
+
+
+#pupae
+ason_vstNorm_counts_pupae <-  ason_vstNorm_counts[,-c(1:2,9:10,17:18)]
+write.table(ason_vstNorm_counts_pupae, "ason_vstNorm_counts_pupae.txt", sep="\t", quote=F, col.names=NA)
+head(ason_vstNorm_counts_pupae)
+ason_vstNorm_counts_pupae["genes"] <- rownames(ason_vstNorm_counts_pupae)
+ason_vstNorm_counts_pupae_cardiolipin <- merge(cardiolipin_genes, ason_vstNorm_counts_pupae, by.x="genes", by.y = "genes")
+rownames(ason_vstNorm_counts_pupae_cardiolipin) <- ason_vstNorm_counts_pupae_cardiolipin$genes
+dim(ason_vstNorm_counts_pupae_cardiolipin)
+breaksListx <- seq(0, 15, by = 0.01)
+pheatmap(ason_vstNorm_counts_pupae_cardiolipin[,c(2:19)],color = colorRampPalette(c("red", "black", "green"))(length(breaksListx)), breaks = breaksListx,fontsize = 6,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T)
+
+#z-score on vst
+z_Tason_vstNorm_counts <- scale(t(ason_vstNorm_counts[,c(1:24)]), center = TRUE, scale = TRUE)
+z_ason_vstNorm_counts <- data.frame(t(z_Tason_vstNorm_counts))
+write.table(z_ason_vstNorm_counts, "z_ason_vstNorm_counts.txt", sep="\t", quote=F, col.names=NA)
+head(z_ason_vstNorm_counts)
+z_ason_vstNorm_counts["genes"] <- rownames(z_ason_vstNorm_counts)
+
+z_ason_vstNorm_counts_cardiolipin <- merge(cardiolipin_genes, z_ason_vstNorm_counts, by.x="genes", by.y = "genes")
+rownames(z_ason_vstNorm_counts_cardiolipin) <- z_ason_vstNorm_counts_cardiolipin$genes
+dim(z_ason_vstNorm_counts_cardiolipin)
+breaksListn <- seq(-4, 4, by = 0.01)
+pheatmap(z_ason_vstNorm_counts_cardiolipin[,c(2:25)],color = colorRampPalette(c("red", "black", "green"))(length(breaksListn)), breaks = breaksListn,fontsize = 6,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T)
+
+#pupae
+z_Tason_vstNorm_counts_pupae <- scale(t(ason_vstNorm_counts[,-c(1:2,9:10,17:18,25)]), center = TRUE, scale = TRUE)
+z_ason_vstNorm_counts_pupae <- data.frame(t(z_Tason_vstNorm_counts_pupae))
+write.table(z_ason_vstNorm_counts_pupae, "z_ason_vstNorm_counts_pupae.txt", sep="\t", quote=F, col.names=NA)
+head(z_ason_vstNorm_counts_pupae)
+z_ason_vstNorm_counts_pupae["genes"] <- rownames(z_ason_vstNorm_counts_pupae)
+z_ason_vstNorm_counts_pupae_cardiolipin <- merge(cardiolipin_genes, z_ason_vstNorm_counts_pupae, by.x="genes", by.y = "genes")
+rownames(z_ason_vstNorm_counts_pupae_cardiolipin) <- z_ason_vstNorm_counts_pupae_cardiolipin$genes
+dim(z_ason_vstNorm_counts_pupae_cardiolipin)
+breaksListn <- seq(-4, 4, by = 0.01)
+pheatmap(z_ason_vstNorm_counts_pupae_cardiolipin[,c(2:19)],color = colorRampPalette(c("red", "black", "green"))(length(breaksListn)), breaks = breaksListn,fontsize = 6,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T)
+#z_ason_vstNorm_counts_pupae_cardiolipin.pdf
+```
+
+
+
+### mitochondrial genes
+```{r mitochondrial genes}
+z_Tason_ddsONormcounts= scale(t(ason_ddsONormcounts), center = TRUE, scale = TRUE)
+z_ason_ddsONormcounts <- data.frame(t(z_Tason_ddsONormcounts))
+write.table(z_ason_ddsONormcounts, "z_ason_ddsONormcounts.txt", sep="\t", quote=F, col.names=NA)
+head(z_ason_ddsONormcounts)
+z_ason_ddsONormcounts["genes"] <- rownames(z_ason_ddsONormcounts)
+mitochondrial_genes <- read.table("mitochondrial_genes.txt")
+colnames(mitochondrial_genes) <- "genes"
+z_ason_ddsONormcounts_mitochondrial <- merge(mitochondrial_genes, z_ason_ddsONormcounts, by.x="genes", by.y = "genes")
+rownames(z_ason_ddsONormcounts_mitochondrial) <- z_ason_ddsONormcounts_mitochondrial$genes
+dim(z_ason_ddsONormcounts_mitochondrial)
+breaksListn <- seq(-4, 4, by = 0.01)
+pheatmap(z_ason_ddsONormcounts_mitochondrial[,c(2:25)],color = colorRampPalette(c("red", "black", "green"))(length(breaksListn)), breaks = breaksListn,fontsize = 6,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T)
+
+#pupae
+z_Tason_ddsONormcounts_pupae= scale(t(ason_ddsONormcounts[,-c(1:2,9:10,17:18)]), center = TRUE, scale = TRUE)
+z_ason_ddsONormcounts_pupae <- data.frame(t(z_Tason_ddsONormcounts_pupae))
+write.table(z_ason_ddsONormcounts_pupae, "z_ason_ddsONormcounts_pupae.txt", sep="\t", quote=F, col.names=NA)
+head(z_ason_ddsONormcounts_pupae)
+z_ason_ddsONormcounts_pupae["genes"] <- rownames(z_ason_ddsONormcounts_pupae)
+mitochondrial_genes <- read.table("mitochondrial_genes.txt")
+colnames(mitochondrial_genes) <- "genes"
+z_ason_ddsONormcounts_pupae_mitochondrial <- merge(mitochondrial_genes, z_ason_ddsONormcounts_pupae, by.x="genes", by.y = "genes")
+rownames(z_ason_ddsONormcounts_pupae_mitochondrial) <- z_ason_ddsONormcounts_pupae_mitochondrial$genes
+dim(z_ason_ddsONormcounts_pupae_mitochondrial)
+breaksListn <- seq(-4, 4, by = 0.01)
+pheatmap(z_ason_ddsONormcounts_pupae_mitochondrial[,c(2:19)],color = colorRampPalette(c("red", "black", "green"))(length(breaksListn)), breaks = breaksListn,fontsize = 6,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T)
+#z_ason_ddsONormcounts_pupae_mitochondrial.pdf
+#vst
+head(ason_vstNorm_counts)
+ason_vstNorm_counts["genes"] <- rownames(ason_vstNorm_counts)
+mitochondrial_genes <- read.table("mitochondrial_genes.txt")
+colnames(mitochondrial_genes) <- "genes"
+ason_vstNorm_counts_mitochondrial <- merge(mitochondrial_genes, ason_vstNorm_counts, by.x="genes", by.y = "genes")
+rownames(ason_vstNorm_counts_mitochondrial) <- ason_vstNorm_counts_mitochondrial$genes
+dim(ason_vstNorm_counts_mitochondrial)
+breaksListx <- seq(0, 15, by = 0.01)
+pheatmap(ason_vstNorm_counts_mitochondrial[,c(2:25)],color = colorRampPalette(c("red", "black", "green"))(length(breaksListx)), breaks = breaksListx,fontsize = 6,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T)
+
+
+#pupae
+ason_vstNorm_counts_pupae <-  ason_vstNorm_counts[,-c(1:2,9:10,17:18)]
+write.table(ason_vstNorm_counts_pupae, "ason_vstNorm_counts_pupae.txt", sep="\t", quote=F, col.names=NA)
+head(ason_vstNorm_counts_pupae)
+ason_vstNorm_counts_pupae["genes"] <- rownames(ason_vstNorm_counts_pupae)
+ason_vstNorm_counts_pupae_mitochondrial <- merge(mitochondrial_genes, ason_vstNorm_counts_pupae, by.x="genes", by.y = "genes")
+rownames(ason_vstNorm_counts_pupae_mitochondrial) <- ason_vstNorm_counts_pupae_mitochondrial$genes
+dim(ason_vstNorm_counts_pupae_mitochondrial)
+breaksListx <- seq(0, 15, by = 0.01)
+pheatmap(ason_vstNorm_counts_pupae_mitochondrial[,c(2:19)],color = colorRampPalette(c("red", "black", "green"))(length(breaksListx)), breaks = breaksListx,fontsize = 6,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T)
+
+#z-score on vst
+z_Tason_vstNorm_counts <- scale(t(ason_vstNorm_counts[,c(1:24)]), center = TRUE, scale = TRUE)
+z_ason_vstNorm_counts <- data.frame(t(z_Tason_vstNorm_counts))
+write.table(z_ason_vstNorm_counts, "z_ason_vstNorm_counts.txt", sep="\t", quote=F, col.names=NA)
+head(z_ason_vstNorm_counts)
+z_ason_vstNorm_counts["genes"] <- rownames(z_ason_vstNorm_counts)
+
+z_ason_vstNorm_counts_mitochondrial <- merge(mitochondrial_genes, z_ason_vstNorm_counts, by.x="genes", by.y = "genes")
+rownames(z_ason_vstNorm_counts_mitochondrial) <- z_ason_vstNorm_counts_mitochondrial$genes
+dim(z_ason_vstNorm_counts_mitochondrial)
+breaksListn <- seq(-4, 4, by = 0.01)
+pheatmap(z_ason_vstNorm_counts_mitochondrial[,c(2:25)],color = colorRampPalette(c("red", "black", "green"))(length(breaksListn)), breaks = breaksListn,fontsize = 6,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T)
+
+#pupae
+z_Tason_vstNorm_counts_pupae <- scale(t(ason_vstNorm_counts[,-c(1:2,9:10,17:18,25)]), center = TRUE, scale = TRUE)
+z_ason_vstNorm_counts_pupae <- data.frame(t(z_Tason_vstNorm_counts_pupae))
+write.table(z_ason_vstNorm_counts_pupae, "z_ason_vstNorm_counts_pupae.txt", sep="\t", quote=F, col.names=NA)
+head(z_ason_vstNorm_counts_pupae)
+z_ason_vstNorm_counts_pupae["genes"] <- rownames(z_ason_vstNorm_counts_pupae)
+z_ason_vstNorm_counts_pupae_mitochondrial <- merge(mitochondrial_genes, z_ason_vstNorm_counts_pupae, by.x="genes", by.y = "genes")
+rownames(z_ason_vstNorm_counts_pupae_mitochondrial) <- z_ason_vstNorm_counts_pupae_mitochondrial$genes
+dim(z_ason_vstNorm_counts_pupae_mitochondrial)
+breaksListn <- seq(-4, 4, by = 0.01)
+pheatmap(z_ason_vstNorm_counts_pupae_mitochondrial[,c(2:19)],color = colorRampPalette(c("red", "black", "green"))(length(breaksListn)), breaks = breaksListn,fontsize = 6,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T)
+#z_ason_vstNorm_counts_pupae_mitochondrial.pdf
+```
+
+#Ponton et al., 2011
+```{r Ponton et al. 2011}
+Ponton_et_al_2011 <- read.table("Ponton_et_al_2011.txt")
+colnames(Ponton_et_al_2011) <- "genes"
+deseq2_pairwise_Mutant_CYC_TP1_Wildtype_CYC_WP1_results_0.05[rownames(deseq2_pairwise_Mutant_CYC_TP1_Wildtype_CYC_WP1_results_0.05) %in% Ponton_et_al_2011$genes,]
+deseq2_pairwise_Mutant_CYC_TP2_Wildtype_CYC_WP2_results_0.05[rownames(deseq2_pairwise_Mutant_CYC_TP2_Wildtype_CYC_WP2_results_0.05) %in% Ponton_et_al_2011$genes,]
+deseq2_pairwise_Mutant_CYC_TP3_Wildtype_CYC_WP3_results_0.05[rownames(deseq2_pairwise_Mutant_CYC_TP3_Wildtype_CYC_WP3_results_0.05) %in% Ponton_et_al_2011$genes,]
+deseq2_pairwise_Mutant_CYC_TL3_Wildtype_CYC_WL3_results_0.05[rownames(deseq2_pairwise_Mutant_CYC_TL3_Wildtype_CYC_WL3_results_0.05) %in% Ponton_et_al_2011$genes,]
+ason_ddsONormcounts[rownames(ason_ddsONormcounts) %in% Ponton_et_al_2011$genes,]
+```
+
+#timtom_related_genes
+```{r timtom_related_genes}
+timtom_related_genes <- read.table("timtom_related_genes.txt")
+colnames(timtom_related_genes) <- "genes"
+deseq2_pairwise_Mutant_CYC_TP1_Wildtype_CYC_WP1_results_0.05[rownames(deseq2_pairwise_Mutant_CYC_TP1_Wildtype_CYC_WP1_results_0.05) %in% timtom_related_genes$genes,]
+deseq2_pairwise_Mutant_CYC_TP2_Wildtype_CYC_WP2_results_0.05[rownames(deseq2_pairwise_Mutant_CYC_TP2_Wildtype_CYC_WP2_results_0.05) %in% timtom_related_genes$genes,]
+deseq2_pairwise_Mutant_CYC_TP3_Wildtype_CYC_WP3_results_0.05[rownames(deseq2_pairwise_Mutant_CYC_TP3_Wildtype_CYC_WP3_results_0.05) %in% timtom_related_genes$genes,]
+deseq2_pairwise_Mutant_CYC_TL3_Wildtype_CYC_WL3_results_0.05[rownames(deseq2_pairwise_Mutant_CYC_TL3_Wildtype_CYC_WL3_results_0.05) %in% timtom_related_genes$genes,]
+ason_ddsONormcounts[rownames(ason_ddsONormcounts) %in% timtom_related_genes$genes,]
+```
+
+#biogenesis_mito
+```{r biogenesis_mito}
+biogenesis_mito <- read.table("biogenesis_mito.txt")
+colnames(biogenesis_mito) <- "genes"
+deseq2_pairwise_Mutant_CYC_TP1_Wildtype_CYC_WP1_results_0.05[rownames(deseq2_pairwise_Mutant_CYC_TP1_Wildtype_CYC_WP1_results_0.05) %in% biogenesis_mito$genes,]
+deseq2_pairwise_Mutant_CYC_TP2_Wildtype_CYC_WP2_results_0.05[rownames(deseq2_pairwise_Mutant_CYC_TP2_Wildtype_CYC_WP2_results_0.05) %in% biogenesis_mito$genes,]
+deseq2_pairwise_Mutant_CYC_TP3_Wildtype_CYC_WP3_results_0.05[rownames(deseq2_pairwise_Mutant_CYC_TP3_Wildtype_CYC_WP3_results_0.05) %in% biogenesis_mito$genes,]
+deseq2_pairwise_Mutant_CYC_TL3_Wildtype_CYC_WL3_results_0.05[rownames(deseq2_pairwise_Mutant_CYC_TL3_Wildtype_CYC_WL3_results_0.05) %in% biogenesis_mito$genes,]
+ason_ddsONormcounts[rownames(ason_ddsONormcounts) %in% biogenesis_mito$genes,]
+```
+
+#function to plot categories
+```{r function to plot categories}
+
+pheatmapSingle <- function(deseq2_output, normcounts, metafile){
+  de_genes <- rownames(deseq2_output)
+  normcounts_df <- data.frame(normcounts)
+  normcounts_df["genes"] <- rownames(normcounts_df)
+  normcounts_df_meta <- merge(normcounts_df, metafile, by="genes")
+  metafile <- read.table("metafile_corrected.txt")
+  colnames(metafile) <- c("genes", "features")
+  featured_genes <- metafile$genes
+  normcounts_df_meta[normcounts_df_meta$genes %in% rownames(deseq2_output),]
+  normcounts_df_meta["DEstatus"] <- ifelse(normcounts_df_meta$genes %in% rownames(deseq2_output) == TRUE, yes = "DE", no = "nonDE")
+  rownames(normcounts_df_meta) <- normcounts_df_meta$genes
+  my_gene_col <- normcounts_df_meta[,c((length(normcounts_df_meta)-1):(length(normcounts_df_meta)))]
+  #feature free df
+  normcounts_df_meta_featured <- normcounts_df_meta[,c(2:(length(normcounts_df_meta)-2))]
+  breaksListn <- seq(-4, 4, by = 0.01)
+  pheatmap(normcounts_df_meta_featured,color = colorRampPalette(c("red", "black", "green"))(length(breaksListn)), breaks = breaksListn,fontsize = 6,clustering_distance_cols = "euclidean",cluster_rows = T,cluster_cols = T,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T, annotation_row = my_gene_col)
+}
+
+```
+
+#function to plot multiple categories
+```{r function to plot categories}
+pheatmapMulti <- function(deseq2_outputs_list, normcounts, sample_status, metafile){
+  # Get_normalized counts
+  normcounts_df <- data.frame(normcounts)
+  normcounts_df["genes"] <- rownames(normcounts_df)
+  # Get metafile
+  colnames(metafile) <- c("genes", "features")
+  featured_genes <- metafile$genes
+  normcounts_df_meta <- merge(normcounts_df, metafile, by="genes")
+  # Prepare master gene list for all DE genes
+  master_deseq2_outputs_genes <- unique(unlist(lapply(deseq2_outputs_list, function(x) rownames(x))))
+  # Get list of all DE genes corresponding to Samples
+  subList_deseq2_outputs <- lapply(deseq2_outputs_list, function(x) (ifelse(master_deseq2_outputs_genes%in%rownames(x) ==TRUE, yes = "DE", no = "nonDE")))
+  # Combined Samples
+  subDF_deseq2_outputs <- do.call(cbind, subList_deseq2_outputs)
+  rownames(subDF_deseq2_outputs) <- master_deseq2_outputs_genes
+  colnames(subDF_deseq2_outputs) <- gsub("_results_0.05","",gsub("deseq2_pairwise_", "", colnames(subDF_deseq2_outputs)))
+  subDF_deseq2_outputs <- data.frame(subDF_deseq2_outputs)
+  subDF_deseq2_outputs["genes"] <- rownames(subDF_deseq2_outputs)
+  # Extract DE genes
+  normcounts_df_meta_de <- merge(normcounts_df_meta, subDF_deseq2_outputs, by="genes")
+  rownames(normcounts_df_meta_de) <- normcounts_df_meta_de$genes
+  # Prepare pheatmap annotations
+  my_gene_col <- normcounts_df_meta_de[,c((length(normcounts_df_meta_de)-(length(subDF_deseq2_outputs)-1)):(length(normcounts_df_meta_de)))]
+  my_colour = list()
+  for (categories in colnames(my_gene_col)){
+    print(categories)
+    my_colour[[categories]] <- c(DE = "yellow", nonDE = "blue")
+  }
+  
+  #For column label
+  my_sample_col <- data.frame(sample = sample_status)
+  rownames(my_sample_col) <- colnames(normcounts)
+
+  # "features" column need to be removed as it is not about DE
+  my_colour$features <- NULL
+  # Feature free df: Just cleanup
+  normcounts_df_meta_de_featured <- normcounts_df_meta_de[,c(2:(length(normcounts_df_meta_de)-length(subDF_deseq2_outputs)))]
+  breaksListn <- seq(-4, 4, by = 0.01)
+  # Plot heatmap
+  pheatmap(normcounts_df_meta_de_featured,color = colorRampPalette(c("red", "black", "green"))(length(breaksListn)), breaks = breaksListn,fontsize = 6,clustering_distance_cols = "euclidean",cluster_rows = F,cluster_cols = F,clustering_method = "ward.D", border_color = "black",show_rownames = T, show_colnames = T, annotation_row = my_gene_col, annotation_colors = my_colour, annotation_col = my_sample_col)
+}
+
+```
+
+#Run pheamtpamulti function as follows:
+```{r Run pheamtpamulti function}
+deseq2_outputs_list <- list(deseq2_pairwise_Mutant_CYC_TP1_Wildtype_CYC_WP1_results_0.05= deseq2_pairwise_Mutant_CYC_TP1_Wildtype_CYC_WP1_results_0.05, deseq2_pairwise_Mutant_CYC_TP2_Wildtype_CYC_WP2_results_0.05=deseq2_pairwise_Mutant_CYC_TP2_Wildtype_CYC_WP2_results_0.05, deseq2_pairwise_Mutant_CYC_TP3_Wildtype_CYC_WP3_results_0.05=deseq2_pairwise_Mutant_CYC_TP3_Wildtype_CYC_WP3_results_0.05)
+
+
+z_Tason_ddsONormcounts= scale(t(ason_ddsONormcounts), center = TRUE, scale = TRUE)
+z_ason_ddsONormcounts <- data.frame(t(z_Tason_ddsONormcounts))
+head(z_ason_ddsONormcounts)
+z_ason_ddsONormcounts_re <- z_ason_ddsONormcounts[,c(19:20, 11:12, 3:4, 21:22, 13:14, 5:6, 23:24, 15:16, 7:8, 17:18, 9:10, 1:2)]
+ason_sample_status <- as.character(c(rep("P1",6),rep("P2",6),rep("P3",6),rep("L3",6)))
+
+ason_vstNorm <- DESeq2::vst(ason_ddsO) 
+ason_vstNorm_counts <- data.frame((assay(ason_vstNorm)))
+z_Tason_vstNorm_counts= scale(t(ason_vstNorm_counts), center = TRUE, scale = TRUE)
+z_ason_vstNorm_counts <- data.frame(t(z_Tason_vstNorm_counts))
+head(z_ason_vstNorm_counts)
+z_ason_vstNorm_counts_re <- z_ason_vstNorm_counts[,c(19:20, 11:12, 3:4, 21:22, 13:14, 5:6, 23:24, 15:16, 7:8, 17:18, 9:10, 1:2)]
+
+
+#sort -k1,1 -u metafile.txt > metafile_corrected.txt
+metafile <- read.table("metafile_corrected.txt")
+pheatmapMulti(deseq2_outputs_list, z_ason_vstNorm_counts_re, ason_sample_status, metafile)
+
+#pheatmapMulti_vst_P1_P2_P3_L3.pdf
+```
+

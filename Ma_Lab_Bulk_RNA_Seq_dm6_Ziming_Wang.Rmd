@@ -1,0 +1,57 @@
+---
+title: "Ma_Lab_RNA_Seq_Bulk_Ziming_Wang"
+output: html_document
+date: "2023-08-30"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r library, message=FALSE}
+load("/Users/ankitverma/Documents/rna-seq/ma_lab_dm6/Ziming/deseq2.dds.RData")
+library(DESeq2)
+library(ggplot2)
+library(pheatmap)
+library(plyr)
+library(ggpubr)
+library(splitstackshape)
+library(gprofiler2)
+library(UpSetR)
+library(tidyr)
+library(org.Dm.eg.db)
+library(stringr)
+library(ggrepel)
+library(ChIPseeker)
+library(TxDb.Dmelanogaster.UCSC.dm6.ensGene)
+library(clusterProfiler)
+library(stringi)
+library(data.table)
+library(openxlsx)
+```
+
+
+### Obtain un-normalized counts from dds (output of nextflow nf-core/rnaseq)
+
+```{r Obtaining un-normalized counts from dds}
+precountdata <- counts(dds, normalized=FALSE)
+head(precountdata)
+dim(precountdata)
+colSums(precountdata)
+precountdata <- data.frame(precountdata)
+precountdata["ensID"] <- rownames(precountdata)
+# Extract only the samples asked by Ziming Wang
+precountdata <- precountdata[,c(5,6,37:44,49:50)]
+write.table(precountdata, "precountdata_Zimingwang_new.txt", quote = F, append = F, sep="\t")
+```
+
+
+```{r Calculate CPM counts}
+precountdata_cpm <- edgeR::cpm(as.matrix(precountdata))
+write.table(precountdata_cpm, "precountdata_cpm_Zimingwang_new.txt", quote = F, append = F, sep="\t")
+precountdata_cpm <- data.frame(precountdata_cpm)
+library(openxlsx)
+write.xlsx(precountdata_cpm, file = "precountdata_cpm.xlsx", colNames = TRUE, rowNames = TRUE)
+```
+

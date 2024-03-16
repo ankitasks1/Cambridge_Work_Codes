@@ -1,0 +1,84 @@
+---
+title: "Ma_Lab_RNA_Seq_Bulk_Beitong"
+output: html_document
+date: "2023-04-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+setwd("/Users/ankitverma/Documents/rna-seq/ma_lab_dm6/RNAseq_with_Adam")
+
+```{r library, message=FALSE}
+load("/Users/ankitverma/Documents/rna-seq/ma_lab_dm6/RNAseq_with_Adam/deseq2.dds.RData")
+library(DESeq2)
+library(ggplot2)
+library(pheatmap)
+library(plyr)
+library(ggpubr)
+library(splitstackshape)
+library(gprofiler2)
+library(UpSetR)
+library(tidyr)
+library(org.Dm.eg.db)
+library(stringr)
+library(ggrepel)
+library(ChIPseeker)
+library(TxDb.Dmelanogaster.UCSC.dm6.ensGene)
+library(clusterProfiler)
+library(stringi)
+library(data.table)
+library(openxlsx)
+```
+
+
+### Obtain un-normalized counts from dds (output of nextflow nf-core/rnaseq)
+
+```{r Obtaining un-normalized counts from dds}
+precountdata <- counts(dds, normalized=FALSE)
+head(precountdata)
+dim(precountdata)
+colSums(precountdata)
+precountdata <- data.frame(precountdata)
+precountdata["ensID"] <- rownames(precountdata)
+write.table(precountdata, "precountdata_beitong_new.txt", quote = F, append = F, sep="\t")
+```
+
+
+#Perform VST for full matrix
+```{r VST transform and plot PCA}
+vstNorm <- DESeq2::vst(dds) 
+vstNorm_pca <- plotPCA(vstNorm, intgroup="sample", returnData=TRUE)
+plotPCA(vstNorm, intgroup="sample", returnData=FALSE)
+```
+# Merge old and new data counts
+```{r Merge old and new data counts}
+precountdata_all_old <- read.table("precountdata_all_old.txt", row.names = 1)
+precountdata_beitong_new <- precountdata
+precountdata_beitong_old_new <- merge(precountdata_beitong_new, precountdata_all_old, by="ensID")
+precountdata_beitong_old_new <- precountdata_beitong_old_new[,c(1:8)]
+write.table(precountdata_beitong_old_new, "precountdata_beitong_old_new.txt", quote = F, append = F, sep="\t")
+```
+
+
+### Prepare new count matrix for beitong merged data
+```{r Preparing count matrix nuria}
+precountdata_beitong_old_new_countdata = as.matrix(precountdata_beitong_old_new[,c(2:8)])
+rownames(precountdata_beitong_old_new_countdata) <- precountdata_beitong_old_new$ensID
+precountdata_beitong_old_new_coldata <- data.frame(colnames(precountdata_beitong_old_new_countdata))
+colnames(precountdata_beitong_old_new_coldata) <- c("sample")
+precountdata_beitong_old_new_coldata["Sample_Status"] <- c("EM_132", "EM_81", "EM_9M3","8_1", "8_1" ,"9M3", "9M3")
+rownames(precountdata_beitong_old_new_coldata) <- colnames(precountdata_beitong_old_new_countdata)
+all(rownames(precountdata_beitong_old_new_coldata) == colnames(precountdata_beitong_old_new_countdata)) #should print TRUE
+beitong_merged_ddsO <- DESeqDataSetFromMatrix(countData = precountdata_beitong_old_new_countdata, colData = precountdata_beitong_old_new_coldata, design = ~ Sample_Status)
+beitong_merged_keep <- rowSums(counts(beitong_merged_ddsO)) > 10
+beitong_merged_ddsO <- beitong_merged_ddsO[beitong_merged_keep,]
+```
+
+
+#Perform VST for full matrix
+```{r VST transform and plot PCA}
+beitong_mergedNorm <- DESeq2::vst(beitong_merged_ddsO) 
+beitong_mergedNorm_pca <- plotPCA(beitong_mergedNorm, intgroup="sample", returnData=TRUE)
+plotPCA(beitong_mergedNorm, intgroup="sample", returnData=FALSE)
+```

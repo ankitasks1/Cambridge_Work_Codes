@@ -1,0 +1,92 @@
+---
+title: "Ma_Lab_RNA_Seq_Bulk_Beitong_EM_1M1"
+output: html_document
+date: "2023-08-29"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+setwd("/Users/ankitverma/Documents/rna-seq/ma_lab_dm6/RNA_EM_1M1")
+
+```{r library, message=FALSE}
+library(DESeq2)
+library(ggplot2)
+library(pheatmap)
+library(plyr)
+library(ggpubr)
+library(splitstackshape)
+library(gprofiler2)
+library(UpSetR)
+library(tidyr)
+library(org.Dm.eg.db)
+library(stringr)
+library(ggrepel)
+library(ChIPseeker)
+library(TxDb.Dmelanogaster.UCSC.dm6.ensGene)
+library(clusterProfiler)
+library(stringi)
+library(data.table)
+library(openxlsx)
+```
+
+
+### Obtain un-normalized counts from beitong_em_dds (output of nextflow nf-core/rnaseq)
+```{r Obtaining un-normalized counts from dds}
+load("/Users/ankitverma/Documents/rna-seq/ma_lab_dm6/RNA_EM_1M1/beitong_deseq2.dds.RData")
+beitong_em_dds <- dds
+rm(dds)
+beitong_em_precountdata <- counts(beitong_em_dds, normalized=FALSE)
+beitong_em_precountdata <- data.frame(beitong_em_precountdata)
+beitong_em_precountdata["ensID"] <- rownames(beitong_em_precountdata)
+write.table(beitong_em_precountdata, "beitong_em_precountdata.txt", quote = F, append = F, sep="\t")
+colnames(beitong_em_precountdata)[1] <- c("EM_1M1")
+```
+
+### Obtain un-normalized counts from ason_all_dds (output of nextflow nf-core/rnaseq)
+```{r Obtaining un-normalized counts from ason dds}
+load("/Users/ankitverma/Documents/rna-seq/ma_lab_dm6/RNA_EM_1M1/ason_and_all_deseq2.dds.RData")
+ason_all_dds <- dds
+rm(dds)
+ason_all_precountdata <- counts(ason_all_dds, normalized=FALSE)
+ason_all_precountdata <- data.frame(ason_all_precountdata)
+ason_all_precountdata["ensID"] <- rownames(ason_all_precountdata)
+write.table(ason_all_precountdata, "ason_all_precountdata.txt", quote = F, append = F, sep="\t")
+```
+
+
+```{r Merge ason and beitong data}
+beitong_ason_precountdata <- merge(beitong_em_precountdata, ason_all_precountdata, by="ensID")
+```
+
+# Merge old(run1) + new(run2) Beitong counts + new (run3) Beitong and Ason (run1)
+```{r Merge old and new data counts}
+precountdata_beitong_old1_new2 <- read.table("/Users/ankitverma/Documents/rna-seq/ma_lab_dm6/RNAseq_with_Adam/precountdata_beitong_old_new.txt")
+
+# remove run1 samples as they are already being imported
+
+precountdata_beitong_new2 <- precountdata_beitong_old1_new2[,c(1:4)]
+precountdata_beitong_old1_new2_new3_ason1 <- merge(precountdata_beitong_new2, beitong_ason_precountdata, by="ensID")
+
+#renmae it to smaller id 
+pbonna <- precountdata_beitong_old1_new2_new3_ason1
+```
+
+
+### Prepare new count data for beitong merged data
+```{r Preparing count matrix beitong}
+rownames(pbonna) <- pbonna$ensID
+pbonna_countdata = as.matrix(pbonna[,c(2:9,12:13)])
+pbonna_coldata <- data.frame(colnames(pbonna_countdata))
+colnames(pbonna_coldata) <- c("sample")
+
+write.table(pbonna_countdata, "pbonna_countdata.txt", quote = F, append = F, sep="\t")
+```
+
+
+### Prepare new count matrix for beitong merged data
+```{r Preparing count matrix nuria}
+all(rownames(pbonna_coldata) == colnames(pbonna_countdata)) #should print TRUE
+beitong_ddsO <- DESeqDataSetFromMatrix(countData = pbonna_countdata, colData = pbonna_coldata, design = ~ Sample_Status)
+beitong_keep <- rowSums(counts(beitong_ddsO)) > 10
+beitong_ddsO <- beitong_ddsO[beitong_keep,]
