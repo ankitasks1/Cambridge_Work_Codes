@@ -141,4 +141,5 @@ mv GRCm39.primary_assembly.genome.fa genome.fa
 
 #### sample sheet edited with header sample,fastq_1,fastq_2 before running
 
+
 Study which used the nextflow em-seq: https://www.tandfonline.com/doi/full/10.1080/15592294.2021.1997406
