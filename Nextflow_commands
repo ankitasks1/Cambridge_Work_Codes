@@ -64,7 +64,6 @@ cp -r ./../../dm6.ncbiRefSeq.gtf .
 /mnt/home3/slurm/slurm_sub.py nextflow -log myrun.log run nf-core/rnaseq  -r 3.8.1 -profile singularity --outdir outfolder --input samplesheet.csv --fasta dm6.fa --gtf dm6.ncbiRefSeq.gtf -c /mnt/home3/nextflow/gurdon.config --save_reference
 
 
-
 ## --------- ChIP-Seq  ----------- ##
 ### Aug 2022 iva_lab_gencode
 ##### Single-end
@@ -76,7 +75,6 @@ cp -r ./../../dm6.ncbiRefSeq.gtf .
 ​​/mnt/home3/slurm/slurm_sub.py nextflow run nf-core/chipseq -r 1.2.2 -profile singularity --outdir outfolder -c /mnt/home3/nextflow/gurdon.config --fasta ./../PE/GRCh38.p13.genome.fa --gtf ./../PE/GRCh38.gencode.v41.chr_patch_hapl_scaff.annotation.gtf --input design.csv --macs_gsize 2.8e9
 
 
-
 ## --------------CUT&RUN -----------------##
 ### Nov 2022 iva_lab_gencode
 #### Single-end →our data is single end, since cutnrun of nf-core needs paired end data I used chipseq to just map the reads
@@ -85,7 +83,7 @@ cp -r ./../../dm6.ncbiRefSeq.gtf .
 #### Peak calling cut & run 
 macs2 callpeak -t test.bam -c control.bam -f BAM -g 2.7e9 -n test --keep-dup all
 
-#Feb 2023 iva_lab_gencode
+#### Feb 2023 iva_lab_gencode
 #### Single-end →our data is single end
 /mnt/home3/slurm/slurm_sub.py nextflow run nf-core/chipseq -r 1.2.2 -profile singularity --outdir outfolder -c /mnt/home3/nextflow/gurdon.config --fasta GRCh38.p13.genome.fa --gtf GRCh38.gencode.v41.chr_patch_hapl_scaff.annotation.gtf --input mapping_design.csv --save_reference --single_end
 
@@ -100,13 +98,14 @@ macs2 callpeak -t test.bam -c control.bam -f BAM -g 2.7e9 -n test --keep-dup all
 #### using bowtie2 as aligner
 /mnt/home3/slurm/slurm_sub.py nextflow run nf-core/chipseq -r 2.0.0 --input samplesheet.csv -profile singularity --outdir outfolder -c /mnt/home3/nextflow/gurdon.config --fasta GRCh38.p13.genome.fa --gtf GRCh38.gencode.v41.chr_patch_hapl_scaff.annotation.gtf --save_reference --blacklist ENCFF356LFX.bed --aligner bowtie2 --read_length 150
 
-##----------------CUTNTAG-------------------##
+## ---------------CUTNTAG------------------ ##
+#### Oct 2023 iva_lab_gencode
 ##### mapping using chipseq pipeline
 ##### software v23 will automatically detect whether it SE or PE so no need to supply, nf-core/chipseq 
 ##### using bowtie2 as aligner
 /mnt/home3/slurm/slurm_sub.py nextflow run nf-core/chipseq -r 2.0.0 --input samplesheet.csv -profile singularity --outdir outfolder -c /mnt/home3/nextflow/gurdon.config --fasta GRCh38.p13.genome.fa --gtf GRCh38.gencode.v41.chr_patch_hapl_scaff.annotation.gtf --save_reference --blacklist ENCFF356LFX.bed --aligner bowtie2 --read_length 150 --skip_deseq2_qc --skip_consensus_peaks --skip_peak_annotation 
 
-
+#### Jan 2024 iva_lab_gencode
 #### mapping using cutandrun pipeline (works only on paired end)
 #### only PE is possible
 #### using bowtie2 as aligner
@@ -124,22 +123,18 @@ nextflow pull nf-core/cutandrun
 #### nextflow v23 version
 conda activate nextflow_v23
 
-nextflow run nf-core/atacseq -r 2.1.2 --outdir out -profile test,singularity
-
-/mnt/home3/slurm/slurm_sub.py nextflow run nf-core/atacseq -r 2.1.2 -profile singularity --input samplesheet.csv --outdir outfolder --fasta GRCh38.p13.genome.fa --gtf GRCh38.gencode.v41.chr_patch_hapl_scaff.annotation.gtf --read_length 150 --blacklist ENCFF356LFX.bed --mito_name chrM  --with_control --save_reference -c /mnt/home3/nextflow/gurdon.config
-
 #### using bowtie2 as aligner (selected)
 /mnt/home3/slurm/slurm_sub.py nextflow run nf-core/atacseq -r 2.1.2 -profile singularity --input samplesheet.csv --outdir boutfolder --fasta GRCh38.p13.genome.fa --gtf GRCh38.gencode.v41.chr_patch_hapl_scaff.annotation.gtf --read_length 150 --blacklist ENCFF356LFX.bed --mito_name chrM --save_reference -c /mnt/home3/nextflow/gurdon.config --aligner bowtie2
 
 ## -------------Methyl-Seq--------------- ##
 
-####  Aug 2022 Hector data 
+####  Nov 2022 Hector gurdonlab 
 #use anyone, all tested and are the same
 /mnt/home3/slurm/slurm_sub.py nextflow run nf-core/methylseq -r 1.6.1 -profile singularity --outdir outfolder --fasta GRCm39.primary_assembly.genome.fa --input "'*_{R1,R2}.fastq.gz'" --save_reference --maxins 1000 --em_seq -c /mnt/home3/nextflow/gurdon.config --cytosine_report --methyl_kit
 
 screen nextflow run nf-core/methylseq -r 1.6.1 -profile singularity --outdir outfolder --fasta GRCm39.primary_assembly.genome.fa --input '*_{R1,R2}.fastq.gz' --save_reference --maxins 1000 --em_seq --cytosine_report
 
-####  Nov 2022 Hector
+####  Nov 2022 Hector novaseq_em_seq
 ####  Novaseq data with samplesheet.csv
 mv GRCm39.primary_assembly.genome.fa genome.fa
 /mnt/home3/slurm/slurm_sub.py nextflow run nf-core/methylseq -r 2.2.0 -profile singularity --outdir outfolder --fasta /mnt/home3/reid/av638/methylseq/novaseq_em_seq/NVS090/datafree/genome.fa --input samplesheet.csv --save_reference --maxins 1000 --em_seq -c /mnt/home3/nextflow/gurdon.config --cytosine_report --methyl_kit -resume
