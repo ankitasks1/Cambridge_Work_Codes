@@ -17,7 +17,7 @@ ls *.fastq.gz -1 | awk -F'_' '{print $1}' | sort -k1,1 -u | awk '{print $1"\t"$1
 #Gencode With gurdon.config and default of nf-core/rna-seq
 /mnt/home3/slurm/slurm_sub.py nextflow -log myrun.log run nf-core/rnaseq  -r 3.8.1 -profile singularity --outdir outfolder --input samplesheet.csv --fasta GRCh38.p13.genome.fa --gtf GRCh38.gencode.v41.chr_patch_hapl_scaff.annotation.gtf -c /mnt/home3/nextflow/gurdon.config --save_reference --gencode
 
-### Project Code: 
+### Project Code: GBP0030
 ### Oct 2023 iva_lab_gencode CRAMP1_knockdown
 ### PI: Iva Tschasovnikarova
 ### Stackholder: Rachael Matthews
@@ -79,7 +79,7 @@ cp -r ./../../dm6.ncbiRefSeq.gtf .
 
 
 ## --------- ChIP-Seq  ----------- ##
-### Project Code: 
+### Project Code: GBP0012 (done for this project only)
 ### Aug 2022 iva_lab_gencode
 ### PI: Iva Tschasovnikarova
 ### Stackholder: Rachael Matthews
@@ -103,14 +103,14 @@ cp -r ./../../dm6.ncbiRefSeq.gtf .
 #### Peak calling cut & run 
 macs2 callpeak -t test.bam -c control.bam -f BAM -g 2.7e9 -n test --keep-dup all
 
-### Project Code: 
+### Project Code: GBP0016 (new data for the same project)
 #### Feb 2023 iva_lab_gencode
 ### PI: Iva Tschasovnikarova
 ### Stackholder: Rachael Matthews
 #### Single-end →our data is single end
 /mnt/home3/slurm/slurm_sub.py nextflow run nf-core/chipseq -r 1.2.2 -profile singularity --outdir outfolder -c /mnt/home3/nextflow/gurdon.config --fasta GRCh38.p13.genome.fa --gtf GRCh38.gencode.v41.chr_patch_hapl_scaff.annotation.gtf --input mapping_design.csv --save_reference --single_end
 
-### Project Code: 
+### Project Code: GBP0030
 #### Oct 2023 iva_lab_oct23
 ### PI: Iva Tschasovnikarova
 ### Stackholder: Rachael Matthews
@@ -119,7 +119,7 @@ macs2 callpeak -t test.bam -c control.bam -f BAM -g 2.7e9 -n test --keep-dup all
 #### using bowtie2 as aligner
 /mnt/home3/slurm/slurm_sub.py nextflow run nf-core/chipseq -r 2.0.0 --input samplesheet.csv -profile singularity --outdir outfolder -c /mnt/home3/nextflow/gurdon.config --fasta GRCh38.p13.genome.fa --gtf GRCh38.gencode.v41.chr_patch_hapl_scaff.annotation.gtf --save_reference --blacklist ENCFF356LFX.bed --aligner bowtie2 --read_length 150
 
-### Project Code: 
+### Project Code: GBP0030
 #### Oct 2023 Knockdown KD
 ### PI: Iva Tschasovnikarova
 ### Stackholder: Rachael Matthews
@@ -128,7 +128,7 @@ macs2 callpeak -t test.bam -c control.bam -f BAM -g 2.7e9 -n test --keep-dup all
 /mnt/home3/slurm/slurm_sub.py nextflow run nf-core/chipseq -r 2.0.0 --input samplesheet.csv -profile singularity --outdir outfolder -c /mnt/home3/nextflow/gurdon.config --fasta GRCh38.p13.genome.fa --gtf GRCh38.gencode.v41.chr_patch_hapl_scaff.annotation.gtf --save_reference --blacklist ENCFF356LFX.bed --aligner bowtie2 --read_length 150
 
 ## ---------------CUTNTAG------------------ ##
-### Project Code: 
+### Project Code: GBP0030
 #### Oct 2023 iva_lab_gencode
 ### PI: Iva Tschasovnikarova
 ### Stackholder: Rachael Matthews
@@ -137,7 +137,7 @@ macs2 callpeak -t test.bam -c control.bam -f BAM -g 2.7e9 -n test --keep-dup all
 ##### using bowtie2 as aligner
 /mnt/home3/slurm/slurm_sub.py nextflow run nf-core/chipseq -r 2.0.0 --input samplesheet.csv -profile singularity --outdir outfolder -c /mnt/home3/nextflow/gurdon.config --fasta GRCh38.p13.genome.fa --gtf GRCh38.gencode.v41.chr_patch_hapl_scaff.annotation.gtf --save_reference --blacklist ENCFF356LFX.bed --aligner bowtie2 --read_length 150 --skip_deseq2_qc --skip_consensus_peaks --skip_peak_annotation 
 
-### Project Code: 
+### Project Code: GBP0030
 #### Jan 2024 iva_lab_gencode
 ### PI: Iva Tschasovnikarova
 ### Stackholder: Rachael Matthews
@@ -152,7 +152,7 @@ nextflow pull nf-core/cutandrun
 
 ## ---------------ATAC-Seq ------------ ##
 
-### Project Code: 
+### Project Code: GBP0030
 ### Oct 2023 iva_lab_gencode
 ### PI: Iva Tschasovnikarova
 ### Stackholder: Rachael Matthews
