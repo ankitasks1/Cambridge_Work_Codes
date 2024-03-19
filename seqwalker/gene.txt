@@ -1,0 +1,2 @@
+chr1	1	100	+	gene	ens58686	Ghjahs
+chr2	6	9	-	gene	ens9575	Khd
