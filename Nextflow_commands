@@ -1,4 +1,4 @@
-## --------- RNA-Seq ----------- ##
+## ---------------- RNA-Seq --------------- ##
 
 ### Project Code: GBP0012
 ### July 2022 iva_lab_gencode CRAMP1_knockout
@@ -78,7 +78,7 @@ cp -r ./../../dm6.ncbiRefSeq.gtf .
 /mnt/home3/slurm/slurm_sub.py nextflow -log myrun.log run nf-core/rnaseq  -r 3.8.1 -profile singularity --outdir outfolder --input samplesheet.csv --fasta dm6.fa --gtf dm6.ncbiRefSeq.gtf -c /mnt/home3/nextflow/gurdon.config --save_reference
 
 
-## --------- ChIP-Seq  ----------- ##
+## ---------------- ChIP-Seq  ---------------- ##
 ### Project Code: GBP0012 (done for this project only)
 ### Aug 2022 iva_lab_gencode
 ### PI: Iva Tschasovnikarova
@@ -181,6 +181,15 @@ mv GRCm39.primary_assembly.genome.fa genome.fa
 /mnt/home3/slurm/slurm_sub.py nextflow run nf-core/methylseq -r 2.2.0 -profile singularity --outdir outfolder --fasta /mnt/home3/reid/av638/methylseq/novaseq_em_seq/NVS090/datafree/genome.fa --input samplesheet.csv --save_reference --maxins 1000 --em_seq -c /mnt/home3/nextflow/gurdon.config --cytosine_report --methyl_kit -resume
 
 #### sample sheet edited with header sample,fastq_1,fastq_2 before running
-
-
 Study which used the nextflow em-seq: https://www.tandfonline.com/doi/full/10.1080/15592294.2021.1997406
+
+## -------------RNAVAR--------------- ##
+### Project Code: GBP0024
+### May 2023 Ma Lab data 
+### PI: Hansong Ma
+### Stackholder: Nuria/Ziming
+samplesheet.csv was prepared manually
+#Gencode With gurdon.config and default of nf-core/rnavar
+# variant annotation I am removing as it is not required
+/mnt/home3/slurm/slurm_sub.py nextflow run nf-core/rnavar  -r 1.0.0 -profile singularity --outdir outfolder --input samplesheet.csv --fasta dm6.fa --gtf dm6.ncbiRefSeq.gtf  -c /mnt/home3/nextflow/gurdon.config --read_length 101 --save_reference --skip_baserecalibration --star_index /mnt/home3/reid/av638/rnaseq/ma_lab_dm6/outfolder/genome/index/star/
+
