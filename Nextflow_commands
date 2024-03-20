@@ -177,8 +177,8 @@ screen nextflow run nf-core/methylseq -r 1.6.1 -profile singularity --outdir out
 ### PI: John Gurdon
 ### Stackholder: Hector
 ####  Novaseq data with samplesheet.csv
-mv GRCm39.primary_assembly.genome.fa genome.fa
-/mnt/home3/slurm/slurm_sub.py nextflow run nf-core/methylseq -r 2.2.0 -profile singularity --outdir outfolder --fasta /mnt/home3/reid/av638/methylseq/novaseq_em_seq/NVS090/datafree/genome.fa --input samplesheet.csv --save_reference --maxins 1000 --em_seq -c /mnt/home3/nextflow/gurdon.config --cytosine_report --methyl_kit -resume
+##### Old version 1.6.1 was used for downstream processing
+/mnt/home3/slurm/slurm_sub.py nextflow run nf-core/methylseq -r 1.6.1 -profile singularity --outdir outfolder --fasta GRCm39.primary_assembly.genome.fa --input '*_{R1,R2}.fastq.gz' --save_reference --maxins 1000 --em_seq -c /mnt/home3/nextflow/gurdon.config --cytosine_report --methyl_kit
 
 #### sample sheet edited with header sample,fastq_1,fastq_2 before running
 Study which used the nextflow em-seq: https://www.tandfonline.com/doi/full/10.1080/15592294.2021.1997406
