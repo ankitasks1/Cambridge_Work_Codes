@@ -77,6 +77,16 @@ cp -r ./../../dm6.ncbiRefSeq.gtf .
 
 /mnt/home3/slurm/slurm_sub.py nextflow -log myrun.log run nf-core/rnaseq  -r 3.8.1 -profile singularity --outdir outfolder --input samplesheet.csv --fasta dm6.fa --gtf dm6.ncbiRefSeq.gtf -c /mnt/home3/nextflow/gurdon.config --save_reference
 
+### Project Code: GBP0026
+### Jun 2023  Extra embryonic tissue genes Project 
+### PI: Fengzhu Xiong
+### Stackholder: Lakshmi Balasubramaniam
+##### All in ensembl
+cat chicken_ensembl/*.fa > Galgal6_ens.fa
+cp chicken_ensembl/*.gtf .
+
+/mnt/home3/slurm/slurm_sub.py -m 200000 nextflow -log myrun.log run nf-core/rnaseq -r 3.12.0 -profile singularity --outdir outfolder_ens --input samplesheet.csv --fasta Galgal6_ens.fa --gtf Gallus_gallus.GRCg6a.106.gtf -c /mnt/home3/nextflow/gurdon.config --save_reference
+
 
 ## ---------------- ChIP-Seq  ---------------- ##
 ### Project Code: GBP0012 (done for this project only)
